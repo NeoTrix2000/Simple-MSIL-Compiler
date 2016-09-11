@@ -43,7 +43,7 @@ extern enum e_sym lastst;
 extern LLONG_TYPE ival;
 extern short *lptr;
 extern TABLE lsyms;
-extern int nextlabel;
+extern long nextlabel;
 extern char lastid[];
 extern int prm_asmopt;
 extern int prm_nasm, prm_asmfile;

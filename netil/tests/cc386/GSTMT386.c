@@ -35,7 +35,7 @@ mailto::camille@bluegrass.net
 
 extern int noStackFrame;
 extern int prm_lscrtdll;
-extern SYM *allocaSP;
+extern ENODE *allocaSP;
 extern int used_alloca;
 extern int virtualfuncs;
 extern int prm_asmfile;

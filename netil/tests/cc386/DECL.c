@@ -85,7 +85,7 @@ extern char *infile;
 extern short *lptr;
 extern int lastch;
 extern TABLE *tagtable;
-extern SYM *thisenode;
+extern ENODE *thisenode;
 extern TYP stdvoidfunc;
 extern int skm_closepa[];
 extern int nodeclfunc;

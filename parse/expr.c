@@ -1478,6 +1478,7 @@ static void checkArgs(FUNCTIONCALL *params, SYMBOL *funcsp)
     BOOLEAN toolong = FALSE;
     BOOLEAN noproto = FALSE;//params->sp ? params->sp->oldstyle : FALSE;
     BOOLEAN vararg = FALSE;
+    BOOLEAN hasEllipse = FALSE;
     int argnum = 0;
  
     if (hr && ((SYMBOL *)hr->p)->thisPtr)
@@ -1511,6 +1512,7 @@ static void checkArgs(FUNCTIONCALL *params, SYMBOL *funcsp)
                     noproto = TRUE;
                 else if (basetype(decl->tp)->type == bt_ellipse)
                 {
+                    hasEllipse = TRUE;
                     vararg =  chosenAssembler->msil && chosenAssembler->msil->managed(params->sp);
                     params->vararg = vararg;
                     matching = FALSE;
@@ -1520,6 +1522,8 @@ static void checkArgs(FUNCTIONCALL *params, SYMBOL *funcsp)
                         break;
                 }
             }
+            if (!decl && !hasEllipse && chosenAssembler->msil)
+                toolong = TRUE;
             if (matching)
             {
                 if (!decl)

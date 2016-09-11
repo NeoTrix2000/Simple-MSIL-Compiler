@@ -61,10 +61,10 @@ extern int parsing_params;
 HASHREC **defhash = 0;
 
 NAMESPACE *thisnamespace;
-HASHREC **gsyms; /*everywhere else this is a table so I don't have to typecast
-    */
-HASHREC **templateFuncs; // ditto
-HASHREC **tagtable;
+TABLE *gsyms; /* this is really a hashrec ** but we use it as a table everywhere else
+                 and I really need it to be the same for the MSIL compiler */
+TABLE *tagtable; /* ditto */
+HASHREC **templateFuncs;
 TABLE lsyms, defsyms, ltags;
 
 LIST **global_using_list,  **global_tag_using_list;

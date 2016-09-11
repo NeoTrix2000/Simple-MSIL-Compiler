@@ -31,7 +31,7 @@ mailto::camille@bluegrass.net
 #include "gen386.h"
 
 extern SYM *currentfunc;
-extern int nextlabel;
+extern long nextlabel;
 extern int prm_peepopt, prm_dsnotss;
 extern int prm_nasm;
 extern int prm_asmfile;

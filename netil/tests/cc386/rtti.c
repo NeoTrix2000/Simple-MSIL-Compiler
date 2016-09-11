@@ -39,7 +39,7 @@ extern int global_flag;
 extern LIST *instantiated_inlines;
 extern TRYBLOCK *try_block_list;
 extern SYM *typeinfo_class;
-extern int nextlabel;
+extern long nextlabel;
 
 RTTI_LIST *list_of_rttis;
 LIST *registered_rttis;

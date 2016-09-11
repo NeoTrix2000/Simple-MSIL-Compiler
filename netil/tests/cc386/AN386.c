@@ -36,7 +36,7 @@ mailto::camille@bluegrass.net
 #include "rtti.h"
 
 /* pc-relative expressions not optimized */
-extern int nextlabel;
+extern long nextlabel;
 extern AMODE push[], pop[];
 extern OCODE *peep_tail;
 extern SYM *currentfunc;

@@ -45,7 +45,7 @@ extern int packdata[], packlevel;
 extern int outcode_base_address;
 extern int lineno;
 extern HASHREC **gsyms;
-extern int lc_maxauto;
+extern long lc_maxauto;
 extern int save_mask;
 
 int dbgblocknum;

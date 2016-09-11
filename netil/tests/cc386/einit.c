@@ -45,7 +45,7 @@ extern int stdldoublesize;
 extern enum e_sym lastst;
 extern char lastid[], laststr[];
 extern int skm_declend[];
-extern int nextlabel;
+extern long nextlabel;
 extern TYP stdmatch;
 extern int skm_declclosepa[];
 extern int skm_closebr[];

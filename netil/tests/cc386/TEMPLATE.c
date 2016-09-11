@@ -55,7 +55,8 @@ extern SYM *currentfunc;
 extern SYM *lastfunc;
 extern TABLE lsyms, oldlsym, ltags, oldltag;
 extern int goodcode;
-extern SYM *asntyp,  *andtyp,  *typequal,  *declclass;
+extern TYP *asntyp,  *andtyp;
+extern SYM  *typequal,  *declclass;
 extern SNODE *funcendstmt;
 extern SNODE *cbautoinithead,  *cbautoinittail,  *cbautorundownhead, 
     *cbautorundowntail;

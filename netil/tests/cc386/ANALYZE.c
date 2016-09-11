@@ -41,7 +41,7 @@ extern TRYBLOCK *try_block_list;
 extern int cf_freeaddress, cf_freedata, cf_freefloat;
 extern long framedepth, stackdepth;
 extern LIST *varlisthead;
-extern int lc_maxauto;
+extern long lc_maxauto;
 extern int stackadd, stackmod;
 extern int anyusedfloat;
 extern int stdaddrsize;
