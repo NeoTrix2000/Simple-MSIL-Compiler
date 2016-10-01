@@ -44,7 +44,7 @@ extern LIST *instantiated_inlines;
 extern int prm_cplusplus;
 extern ENODE *thisenode;
 extern char *cpp_funcname_tab[];
-extern int lastst;
+extern enum e_sym lastst;
 extern int skm_declcomma[];
 extern int skm_declclosepa[];
 extern int stdaddrsize;

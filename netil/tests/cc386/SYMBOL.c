@@ -48,7 +48,7 @@ extern SYM *declclass,  *typequal,  *currentfunc;
 extern struct template  *currentTemplate;
 extern int global_flag;
 extern char lastid[];
-extern int lastst;
+extern enum e_sym lastst;
 extern TABLE *baseasnsymtbl;
 extern int skm_declcomma[];
 extern int funcnesting;

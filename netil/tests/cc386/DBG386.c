@@ -44,7 +44,7 @@ extern int startlab, retlab;
 extern int packdata[], packlevel;
 extern int outcode_base_address;
 extern int lineno;
-extern HASHREC **gsyms;
+extern TABLE *gsyms;
 extern long lc_maxauto;
 extern int save_mask;
 

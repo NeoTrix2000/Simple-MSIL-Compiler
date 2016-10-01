@@ -541,8 +541,12 @@ SYM *castmatch(SYM *sp, TYP *tp, TABLE *tb)
                 case bt_lrimaginary:
                 case bt_double:
                 case bt_longdouble:
-                    sprintf(buf, "f%f", tp->sp->value.f);
+                {
+                    double aa;
+                    FPFToDouble((char *)&aa, &tp->sp->value.f);
+                    sprintf(buf, "f%f", aa);
                     break;
+                }
             }
 
             buf += strlen(buf);

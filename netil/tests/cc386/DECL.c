@@ -65,7 +65,7 @@ extern int packdata[], packlevel;
 extern int prm_cmangle, prm_microlink, prm_asmfile;
 extern char laststr[];
 extern int global_flag;
-extern HASHREC **gsyms;
+extern TABLE *gsyms;
 extern TABLE lsyms, ltags, oldltag;
 extern SNODE *cbautoinithead,  *cbautoinittail;
 extern int prm_revbits;
@@ -4855,7 +4855,7 @@ void check_used(void)
     SYM *sp;
     for (i = 0; i < HASHTABLESIZE; i++)
     {
-        if ((sp = (SYM*)gsyms[i]) != 0)
+        if ((sp = (SYM*)((SYM **)gsyms)[i]) != 0)
         {
             while (sp)
             {

@@ -53,7 +53,7 @@ extern OCODE *peep_tail,  *peep_head,  *peep_insert;
 extern SYM *currentfunc;
 extern int regs[3];
 extern int prm_cplusplus, prm_profiler, prm_farkeyword;
-extern int firstlabel, nextlabel;
+extern long firstlabel, nextlabel;
 extern long lc_maxauto;
 extern ENODE *block_rundown;
 extern SYM *declclass;

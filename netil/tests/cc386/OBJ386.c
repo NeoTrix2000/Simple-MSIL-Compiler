@@ -71,7 +71,7 @@ extern char *infile;
 extern EMIT_TAB segs[MAX_SEGS];
 extern LIST *libincludes;
 extern LINEBUF *linelist;
-extern HASHREC **gsyms;
+extern TABLE *gsyms;
 extern LIST *localfuncs,  *localdata;
 extern int prm_bss;
 extern int outcode_base_address;
@@ -531,7 +531,7 @@ void omfImports(void)
     }
     for (i = 0; i < HASHTABLESIZE; i++)
     {
-        if ((sp = (SYM*)gsyms[i]) != 0)
+        if ((sp = (SYM*)((SYM **)gsyms)[i]) != 0)
         {
             while (sp)
             {
@@ -742,7 +742,7 @@ void omfExports(void)
     }
     for (i = 0; i < HASHTABLESIZE; i++)
     {
-        if ((sp = (SYM*)gsyms[i]) != 0)
+        if ((sp = (SYM*)((SYM **)gsyms)[i]) != 0)
         {
             while (sp)
             {

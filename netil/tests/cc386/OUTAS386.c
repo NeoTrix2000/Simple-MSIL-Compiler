@@ -45,7 +45,7 @@ extern char outfile[];
 extern int prm_flat, prm_optmult;
 extern SYM *currentfunc;
 extern int prm_cmangle;
-extern HASHREC **gsyms;
+extern TABLE *gsyms;
 extern int phiused;
 extern long nextlabel;
 extern FILE *outputFile;
