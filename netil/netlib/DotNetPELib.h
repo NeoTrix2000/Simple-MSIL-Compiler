@@ -578,6 +578,7 @@ public:
     void SetFullName(std::string name) { fullName = name; }
     void SetPointer(int n) { pointerLevel = n; }
     enum BasicType GetBasicType() { return tp; }
+    void SetBasicType(BasicType type) { tp = type; }
     DataContainer *GetClass() { return typeRef; }
     virtual bool ILSrcDump(PELib &);
     bool IsVoid() { return tp == Void && pointerLevel == 0; }
