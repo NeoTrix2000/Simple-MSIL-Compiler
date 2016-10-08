@@ -125,8 +125,8 @@ class Qualifiers : public DestructorBase
     enum
     {
         // settings appropriate for occil, e.g. everything is static.  add public/private...
-        MainClass = Explicit | Ansi | Sealed,
-        ClassClass = Value | Explicit | Sequential | Ansi | Sealed,
+        MainClass = /*Explicit |*/ Ansi | Sealed,
+        ClassClass = Value | /*Explicit |*/ Sequential | Ansi | Sealed,
         ClassField = 0,
         FieldInitialized = Static | ValueType,
         EnumClass =  Enum | Auto | Ansi | Sealed,
@@ -143,11 +143,11 @@ class Qualifiers : public DestructorBase
     }
     bool ILSrcDumpBeforeFlags(PELib &);
     bool ILSrcDumpAfterFlags(PELib &);
-    static std::string GetName(std::string root, DataContainer *parent, std::string separator = "::");
+    static std::string GetName(std::string root, DataContainer *parent, bool type = false);
     int flags;
 protected:
-    static void ReverseNamePrefix(std::string &rv, DataContainer *parent, int &pos, std::string separator);
-    static std::string GetNamePrefix(DataContainer *parent, std::string separator);
+    static void ReverseNamePrefix(std::string &rv, DataContainer *parent, int &pos, bool type);
+    static std::string GetNamePrefix(DataContainer *parent, bool type);
 private:
     static char * qualifierNames[];
     static int afterFlags;
@@ -185,7 +185,7 @@ protected:
 class DataContainer  : public DestructorBase
 {
 public:
-    DataContainer(std::string Name, Qualifiers Flags) : name(Name), flags(Flags), parent(NULL) 
+    DataContainer(std::string Name, Qualifiers Flags) : name(Name), flags(Flags), parent(NULL), instantiated(false) 
     { 
     }
     void Add(DataContainer *item)
@@ -197,6 +197,8 @@ public:
     {
         methods.push_back(item);
     }
+    bool IsInstantiated() { return instantiated; }
+    void SetInstantiated() { instantiated = true; }
     void Add(Field *field);
     virtual bool ILSrcDump(PELib &);
     DataContainer *GetParent() { return parent; }
@@ -209,6 +211,7 @@ protected:
     DataContainer *parent;
     Qualifiers flags;
     std::string name;
+    bool instantiated;
 };
 class AssemblyDef  : public DestructorBase
 {

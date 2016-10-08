@@ -58,7 +58,7 @@ namespace DotNetPELib
         }
         else if (tp == cls)
         {
-            peLib.Out() << "'" << Qualifiers::GetName("", typeRef, "\xf8") << "'";
+            peLib.Out() << "'" << Qualifiers::GetName("", typeRef, true) << "'";
         }
         else if (tp == method)
         {
