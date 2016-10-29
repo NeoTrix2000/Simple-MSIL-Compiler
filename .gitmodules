@@ -1,0 +1,3 @@
+[submodule "netil/netlib"]
+	path = netil/netlib
+	url = https://github.com/LADSoft/DotNetPELib
