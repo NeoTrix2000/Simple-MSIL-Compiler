@@ -1,5 +1,4 @@
-void printf(char *, ...);
-void exit(int);
+#include <stdio.h>
 
 // ^
 int xor(int a, int b)
