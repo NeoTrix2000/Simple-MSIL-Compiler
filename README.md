@@ -7,8 +7,7 @@ This is a WIP.  At present it mostly supports the C language.
 This version supports common RTL variables such as stdin, stdout, stderr, errno, and the variables used for the macros in
 ctype.h.   It also supports command line arguments.
  
-This version supports marshalling of function pointers.  A small helper dll called 'occmsil.dll' is involved in creating thunks for this.  occmsil is built when you build the compiler; but as of this writing bug fixes to the main orange c
-project are required to build occmsil properly, so, the latest version of Orange C/x86 is required to build this package.
+This version supports marshalling of function pointers.  A small helper dll called 'occmsil.dll' is involved in creating thunks for this.  occmsil is built when you build the compiler. 
 
 Calling unprototyped functions now results in an error.
 
@@ -16,21 +15,15 @@ The results are undefined if you try to use some extension such as alloca.
 
 There may be a variety of bugs.
 
-If you want to build it copy this directory into your orange c directory then build from the 'netil' directory.   The following files will be built:   netlib.lib, occmsil.dll, and occil.exe
+This version builds independently from the main Orange C branch, except that you may want to use the Orange C includes directory when compiling files with a compiler you build.  If you want to build it, build files for the VS2015 community edition are in the 'occil' subdirectory (open the .sln file).
 
 Run the compiler 'occil' on a simple C program (test.c is included as an example).
 
-It will generate an MSIL assembly language program (.il extension).   It will try to find c runtime library files in mscvrt.dll.   If you want to import from other files (e.g. for example kernel32.dll) try something like:
-
-	__using__ "kernel32"
-
-as part of the source code, but you do still need to prototype the functions using an appropriate header (in this case usually windows.h)
-
-Assemble the MSIL program with ILASM and you have a .NET exectuable!
+It will generate a PE EXECUTABLE file.   It will try to find c runtime library exports from mscvrt.dll.
 ------------------------------------
 implementation notes:
 
-this compiler currently generates a file to be assembled with ILASM.  For convenience it calls ILASM after creating the output.   This assumes ILASM is on the path however.  ILASM comes as part of the .NET runtime library, along with the C# compiler csc.
+this compiler will generate either a .EXE or .DLL file, or alternately a .il file suitable for viewing or compiling with ilasm.   The compiler uses an independent library 'dotnetpelib' to create the output.
 
 on the technical aspects, there are several MSIL limitations
 
@@ -39,16 +32,17 @@ on the technical aspects, there are several MSIL limitations
 unmanaged code.   You can however use veriable length argument lists on pointers to functions if you keep them managed
 3) initialization of static non-const variables must be done programmatically rather than 'in place' the way a normal C compiler does it - so there are initialization functions generated for each module.   This impacts startup performance.
 
-This compiler will compile either an EXE or a DLL.  The package generally defaults to compiling everything into the unnamed
-MSIL namespace, however, for interoperability with C# it is necessary to wrap the code into a namespace and an outer class.  A command line switch conveniently specifies this wrapper.   Also this compiler is capable of auto-detecting DLL entry
-points for unmanaged DLLs, so for example you can specify on the command line that the compiler should additionally import from things like kernel32.dll and/or user32.dll.   This still requires header support so that prototypes can be specified
-correctly however.   By default the compiler automatically imports the entry points for msvcrt.dll, and the occmsil.dll used for function pointer thunking.
+This compiler will compile either an EXE or a DLL.  The package generally defaults to compiling everything into the unnamed MSIL namespace, however, for interoperability with C# it is necessary to wrap the code into a namespace and an outer class.  A command line switch conveniently specifies this wrapper.   Also this compiler is capable of auto-detecting DLL entry points for unmanaged DLLs, so for example you can specify on the command line that the compiler should additionally import from things like kernel32.dll and/or user32.dll.   This still requires header support so that prototypes can be specified correctly however.   This compiler is designed to work with the same headers that Orange C for the x86 uses.  
+
+By default the compiler automatically imports the entry points for msvcrt.dll, and the occmsil.dll used for function pointer thunking.  A .net assembly 'lsmsilcrtl' is used for runtime support - mostly it performs malloc and free in managed code and exports some functions useful for handling variable length argument lists and command lines.
 
 It is possible to have the compiler combine multiple files into a single output; in this way it performs as a psuedo-linker as well.   Simply specify all the input files on the command line.   The compiler takes wildcards on the command line so you can do something like this for example to compile all the files, linking against several WIN32 DLLs, and giving it an outer namespace and class to be able to reference from C#.   The /Wd switch means make a DLL.
 
 occil /omyoutputfile *.c /Wd /Lkernel32;user32;gdi32 /Nmynamespace.myclass
 
-The compiler will create structures and enumerations for things found in the C code, that can be used from C#.   However a current limitation is the pointers to such objects are implemented as void * rather than as pointers to the correct object type, and have to be cast to be used from C#.   This is being looked into.
+The compiler will create structures and enumerations for things found in the C code, that can be used from C#.   Unlike older versions, in this version pointers are mostly typed instead of being pointers to void.   
+
+This compiler will also enable C# to call managed functions with variable length argument lists.  
 
 Beyond that this is a C11 compiler, but some things currently aren't implemented or are implemented in a limited fashion
 
