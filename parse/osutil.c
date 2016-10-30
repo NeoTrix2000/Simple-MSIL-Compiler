@@ -40,7 +40,11 @@
 #include <setjmp.h>
 #include <stdarg.h>
 #include <ctype.h>
+#ifdef MSIL
+#include "..\version.h"
+#else
 #include "..\..\version.h"
+#endif
 #if defined(_MSC_VER) || defined(BORLAND) || defined(__ORANGEC__)
 #include <io.h>
 #endif
