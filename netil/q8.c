@@ -1,7 +1,7 @@
 #include <Stdio.h>
 #include <Stdlib.h>
 #include <Windows.h>
-__using__ "user32";
+//__using__ "user32";
 /*
 int vv(int m,int n)
 {
