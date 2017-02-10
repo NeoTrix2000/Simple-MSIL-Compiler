@@ -52,13 +52,11 @@ Beyond that this is a C11 compiler, but some things currently aren't implemented
 4) runtime library is msvcrtl.dll, and doesn't support C11 or C99 additions to the CRTL
 5) arrays aren't implemented as managed arrays but as pointers to unmanaged memory.
 6) array types are actually implemented as .net classes
-7) all non-array pointers are implemented as type 'void *'
-8) variable length argument lists are done in the C# style rather than in the C style - except during calls to unmanaged functions
-9) variable length argument lists get marshalling performed when being passed to unmanaged code, but this only handles simple types.
-10) thunks are generated for pointers-to-functions passed between managed and unmanaged code (e.g. for qsort and for WNDPROC style functions) but when the pointers are placed in a structure you need to give the compiler a hint.  use CALLBACK in the function pointer definition and make the callback a stdcall function.
-11) in the thunks for the transition from unmanaged to managed code used by function pointers passed to unmanaged code marshalling is performed, but this only handles simple types.
-12) Virus checkers don't like the library functions that generate the thunk transition code (occmsil.dll)
-13) variable length arrays and 'alloca' are implemented with a managed memory allocator instead of with the 'localalloc' msil function.
-14) structures passed by value to functions get copied to temporary variables before the call
-15) many compiler optimizations found in the native version of the compiler are currently turned off.
-16) The compiler will not allow use of unprototyped functions.
+7) variable length argument lists are done in the C# style rather than in the C style - except during calls to unmanaged functions
+8) variable length argument lists get marshalling performed when being passed to unmanaged code, but this only handles simple types.
+9) thunks are generated for pointers-to-functions passed between managed and unmanaged code (e.g. for qsort and for WNDPROC style functions) but when the pointers are placed in a structure you need to give the compiler a hint.  use CALLBACK in the function pointer definition and make the callback a stdcall function.
+10) in the thunks for the transition from unmanaged to managed code used by function pointers passed to unmanaged code marshalling is performed, but this only handles simple types.
+11) variable length arrays and 'alloca' are implemented with a managed memory allocator instead of with the 'localalloc' msil function.
+12) structures passed by value to functions get copied to temporary variables before the call
+13) many compiler optimizations found in the native version of the compiler are currently turned off.
+14) The compiler will not allow use of unprototyped functions.
