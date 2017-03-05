@@ -1,7 +1,7 @@
 /*
     Software License Agreement (BSD License)
     
-    Copyright (c) 1997-2011, David Lindauer, (LADSoft).
+    Copyright (c) 1997-2016, David Lindauer, (LADSoft).
     All rights reserved.
     
     Redistribution and use of this software in source and binary forms, 
@@ -62,7 +62,7 @@ static char *addNameSpace(char *buf, SYMBOL *sp)
     if (!sp)
         return buf;
     buf = addNameSpace(buf, sp->parentNameSpace);
-    sprintf(buf, "%s::", sp->name);
+    my_sprintf(buf, "%s::", sp->name);
     return buf + strlen(buf);
 }
 static char *addParent(char *buf, SYMBOL *sp)
@@ -73,7 +73,7 @@ static char *addParent(char *buf, SYMBOL *sp)
         buf = addParent(buf, sp->parentClass);
     else
         buf = addNameSpace(buf, sp->parentNameSpace);
-    sprintf(buf, "%s", sp->name);
+    my_sprintf(buf, "%s", sp->name);
     return buf + strlen(buf);
 }
 static char *RTTIGetDisplayName(char *buf, TYPE *tp)
@@ -85,12 +85,12 @@ static char *RTTIGetDisplayName(char *buf, TYPE *tp)
     }
     if (isconst(tp))
     {
-        sprintf(buf, "%s ", "const");
+        my_sprintf(buf, "%s ", "const");
         buf += strlen(buf);
     }
     if (isvolatile(tp))
     {
-        sprintf(buf, "%s ", "volatile");
+        my_sprintf(buf, "%s ", "volatile");
         buf += strlen(buf);
     }
     tp = basetype(tp);
@@ -667,6 +667,7 @@ static void XCStmt(STATEMENT *block, XCLIST ***listPtr)
                 XCStmt(block->blockTail, listPtr);
                 break;
             case st_passthrough:
+            case st_nop:
                 break;
             case st_datapassthrough:
                 break;
@@ -714,7 +715,7 @@ static SYMBOL *DumpXCSpecifiers(SYMBOL *funcsp)
                 p = p->next;
             }
         }
-        sprintf(name, "@$xct%s", funcsp->decoratedName);
+        my_sprintf(name, "@$xct%s", funcsp->decoratedName);
         xcSym = makeID(sc_global, &stdpointer, NULL, litlate(name));
         xcSym->linkage = lk_virtual;
         xcSym->decoratedName = xcSym->errname = xcSym->name;

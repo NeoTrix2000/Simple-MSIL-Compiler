@@ -1,7 +1,7 @@
 /*
     Software License Agreement (BSD License)
     
-    Copyright (c) 1997-2011, David Lindauer, (LADSoft).
+    Copyright (c) 1997-2016, David Lindauer, (LADSoft).
     All rights reserved.
     
     Redistribution and use of this software in source and binary forms, 
@@ -538,6 +538,9 @@ static struct {
 {"Exception specifier blocks exceptions thrown from '%s'", WARNING },
 {"Exception specifier blocks locally thrown exception of type '%s'", WARNING },
 {"undefined external '%s'", ERROR },
+{"Delegating constructor call must be the only initializer", ERROR },
+{"Mismatch on packed template types", ERROR },
+{"Cannot use new() to allocate a reference", ERROR },
 #endif
 } ;
 
@@ -680,14 +683,11 @@ BOOLEAN printerrinternal(int err, char *file, int line, va_list args)
         return FALSE;
     if (err >= sizeof(errors)/sizeof(errors[0]))
     {
-        sprintf(buf, "Error %d", err);
+        my_sprintf(buf, "Error %d", err);
     }
     else
     {
-//        va_list arg;	
-//        va_start(arg, line);
-        vsprintf(buf, errors[err].name, args);
-//        va_end(arg);
+          vsprintf(buf, errors[err].name, args);
     }
     if (IsReturnErr(err) || (errors[err].level & ERROR) || (cparams.prm_ansi && (errors[err].level & ANSIERROR)) 
         || (cparams.prm_cplusplus && (errors[err].level & CPLUSPLUSERROR)))
@@ -807,10 +807,11 @@ void getcls(char *buf, SYMBOL *clssym)
 }
 void errorqualified(int err, SYMBOL *strSym, NAMESPACEVALUES *nsv, char *name)
 {
-    char buf[2048];
+    char buf[4096];
     char unopped[2048];
     char *last = "typename";
     char lastb[2048];
+    memset(buf, 0, sizeof(buf));
     if (strSym)
     {
         unmangle(lastb, strSym->decoratedName);
@@ -836,7 +837,7 @@ void errorqualified(int err, SYMBOL *strSym, NAMESPACEVALUES *nsv, char *name)
     {
         strcpy(unopped, name);
     }
-    sprintf(buf, "'%s' is not a member of '", unopped);
+    my_sprintf(buf, "'%s' is not a member of '", unopped);
     if (strSym)
     {
         typeToString(buf + strlen(buf), strSym->tp);
@@ -897,7 +898,8 @@ void errorstrsym(int err, char *name, SYMBOL *sym2)
 }
 void errorstringtype(int err, char *str, TYPE *tp1)
 {
-    char tpb1[256];
+    char tpb1[4096];
+    memset(tpb1, 0, sizeof(tpb1));
     typeToString(tpb1, tp1);
     printerr(err, preprocFile, preprocLine, str, tpb1);
 }
@@ -905,6 +907,8 @@ void errorstringtype(int err, char *str, TYPE *tp1)
 void errortype (int err, TYPE *tp1, TYPE *tp2)
 {
     char tpb1[4096], tpb2[4096];
+    memset(tpb1, 0, sizeof(tpb1));
+    memset(tpb2, 0, sizeof(tpb2));
     typeToString(tpb1, tp1);
     if (tp2)
         typeToString(tpb2, tp2);
@@ -925,7 +929,7 @@ void errorarg(int err, int argnum, SYMBOL *declsp, SYMBOL *funcsp)
     char argbuf[2048];
     char buf[2048];
     if (declsp->anonymous)
-        sprintf(argbuf,"%d",argnum);
+        my_sprintf(argbuf,"%d",argnum);
     else
     {
         unmangle(argbuf, declsp->errname);
@@ -1084,7 +1088,7 @@ void AddErrorToList(char *tag, char *str)
         char buf[512];
         char *p ;
         LIST *l;
-        sprintf(buf, "******** %s: %s", tag, str);
+        my_sprintf(buf, "******** %s: %s", tag, str);
         p = litlate(buf);
         l = Alloc(sizeof(LIST));
         l->data = p;
@@ -1120,6 +1124,8 @@ static BOOLEAN hasGoto(STATEMENT *stmt)
             case st_asmcond:
             case st_varstart:
             case st_dbgblock:
+                break;
+            case st_nop:
                 break;
             default:
                 diag("unknown stmt type in hasgoto");
@@ -1158,6 +1164,8 @@ static BOOLEAN findVLAs(STATEMENT *stmt)
             case st_asmcond:
             case st_varstart:
             case st_dbgblock:
+                break;
+            case st_nop:
                 break;
             default:
                 diag("unknown stmt type in findvlas");
@@ -1252,6 +1260,8 @@ static void getVLAList(STATEMENT *stmt, VLASHIM ***shims, VLASHIM **prev, int le
             case st_varstart:
             case st_dbgblock:
                 break;
+            case st_nop:
+                break;
             case st_goto:
                 **shims = Alloc(sizeof(VLASHIM));
                 (**shims)->prev = *prev;
@@ -1286,14 +1296,14 @@ static void getVLAList(STATEMENT *stmt, VLASHIM ***shims, VLASHIM **prev, int le
 static void vlaError(VLASHIM *gotoShim, VLASHIM *errShim)
 {
     char buf[256];
-    sprintf(buf, "%d", errShim->line);
+    my_sprintf(buf, "%d", errShim->line);
     currentErrorLine = 0;
     specerror(ERR_GOTO_BYPASSES_VLA_INITIALIZATION, buf, gotoShim->file, gotoShim->line);
 }
 static void declError(VLASHIM *gotoShim, VLASHIM *errShim)
 {
     char buf[256];
-    sprintf(buf, "%d", errShim->line);
+    my_sprintf(buf, "%d", errShim->line);
     currentErrorLine = 0;
     specerror(ERR_GOTO_BYPASSES_INITIALIZATION, buf, gotoShim->file, gotoShim->line);
 }

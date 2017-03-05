@@ -1,7 +1,7 @@
 /*
     Software License Agreement (BSD License)
     
-    Copyright (c) 1997-2011, David Lindauer, (LADSoft).
+    Copyright (c) 1997-2016, David Lindauer, (LADSoft).
     All rights reserved.
     
     Redistribution and use of this software in source and binary forms, 
@@ -2388,7 +2388,7 @@ void oa_genstring(LCHAR *str, int len)
     {
         int nlen = len;
         while (nlen--)
-            if ((isgraph(*str) && *str != '\'' && *str != '\"') || *str == ' ')
+            if (*str >= ' ' && *str < 0x7f && *str != '\'' && *str != '\"')
             {	
                 if (!instring)
                 {

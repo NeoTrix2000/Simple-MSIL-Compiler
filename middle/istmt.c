@@ -1,7 +1,7 @@
 /*
     Software License Agreement (BSD License)
     
-    Copyright (c) 1997-2011, David Lindauer, (LADSoft).
+    Copyright (c) 1997-2016, David Lindauer, (LADSoft).
     All rights reserved.
     
     Redistribution and use of this software in source and binary forms, 
@@ -609,6 +609,8 @@ IMODE *genstmt(STATEMENT *stmt, SYMBOL *funcsp)
         STATEMENT *last = stmt;
         switch (stmt->type)
         {
+            case st_nop:
+                break;
             case st_varstart:
                 gen_varstart(stmt->select);
                 break;
@@ -624,6 +626,10 @@ IMODE *genstmt(STATEMENT *stmt, SYMBOL *funcsp)
                 gen_label((int)stmt->label + codeLabelOffset);
                 break;
             case st_goto:
+                if (stmt->destexp)
+                {
+                    gen_expr(funcsp, last->destexp, F_NOVALUE, ISZ_ADDR);
+                }
                 gen_igoto(i_goto, (int)stmt->label + codeLabelOffset);
                 break;
             case st_asmgoto:
@@ -682,7 +688,7 @@ IMODE *genstmt(STATEMENT *stmt, SYMBOL *funcsp)
                 diag("unknown statement.");
                 break;
         }
-        if (last->type != st_return && last->destexp)
+        if (last->type != st_return && last->type != st_goto && last->destexp)
         {
             gen_expr(funcsp, last->destexp, F_NOVALUE, ISZ_ADDR);
         }

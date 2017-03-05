@@ -1,7 +1,7 @@
 /*
     Software License Agreement (BSD License)
     
-    Copyright (c) 1997-2011, David Lindauer, (LADSoft).
+    Copyright (c) 1997-2016, David Lindauer, (LADSoft).
     All rights reserved.
     
     Redistribution and use of this software in source and binary forms, 
@@ -645,6 +645,9 @@ int main(int argc, char *argv[])
         strcpy(infile, buffer);
         if (cparams.prm_makestubs)
         {
+            preprocini(infile, inputFile);
+            if (chosenAssembler->enter_filename)
+                chosenAssembler->enter_filename(clist->data);
             MakeStubs();
         }
         else

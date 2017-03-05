@@ -1,7 +1,7 @@
 /*
     Software License Agreement (BSD License)
     
-    Copyright (c) 1997-2011, David Lindauer, (LADSoft).
+    Copyright (c) 1997-2016, David Lindauer, (LADSoft).
     All rights reserved.
     
     Redistribution and use of this software in source and binary forms, 
@@ -36,6 +36,7 @@
 
 */
 #include "compiler.h"
+#include <stdarg.h>
 
 extern COMPILER_PARAMS cparams;
 extern ARCH_ASM *chosenAssembler;
@@ -101,12 +102,12 @@ BOOLEAN startOfType(LEXEME *lex, BOOLEAN assumeType)
        
     if (lex->type == l_id)
     { 
-        TEMPLATEPARAM *tparam = TemplateLookupSpecializationParam(lex->value.s.a);
+        TEMPLATEPARAMLIST *tparam = TemplateLookupSpecializationParam(lex->value.s.a);
         if (tparam)
         {
             linesHead = oldHead;
             linesTail = oldTail;
-            return tparam->type == kw_typename || tparam->type == kw_template;
+            return tparam->p->type == kw_typename || tparam->p->type == kw_template;
         }
     }
     if (lex->type == l_id || MATCHKW(lex, classsel))
@@ -129,7 +130,7 @@ BOOLEAN startOfType(LEXEME *lex, BOOLEAN assumeType)
     }
     
 }
-TYPE *basetype(TYPE *tp)
+static TYPE *rootType(TYPE *tp)
 {
     while(tp) 
     {
@@ -156,31 +157,37 @@ TYPE *basetype(TYPE *tp)
     }
     return NULL;
 }
+void UpdateRootTypes(TYPE *tp)
+{
+    while (tp)
+    {
+        TYPE *tp1 = rootType(tp);
+        while (tp && tp1 != tp)
+        {
+            tp->rootType = tp1;
+            tp = tp->btp;
+        }
+        if (tp)
+        {
+            tp->rootType = tp;
+            tp = tp->btp;
+        }
+    }
+}
 BOOLEAN isDerivedFromTemplate(TYPE *tp)
 {
     while (tp)
     {
         switch(tp->type)
         {
-            case bt_far:
-            case bt_near:
-            case bt_const:
-            case bt_va_list:
-            case bt_objectArray:
-            case bt_volatile:
-            case bt_restrict:
-            case bt_static:
-            case bt_atomic:
-            case bt_typedef:
-            case bt_lrqual:
-            case bt_rrqual:
-                tp = tp->btp;
-                break;
+            case bt_pointer:
+            case bt_func:
+            case bt_ifunc:
+                return FALSE;
             case bt_derivedfromtemplate:
                 return TRUE;
-            default:
-                return FALSE;
         }
+        tp = tp->btp;
     }
     return FALSE;
 }
@@ -489,66 +496,10 @@ BOOLEAN isvoid(TYPE *tp)
         return tp->type == bt_void;
     return FALSE;
 }
-BOOLEAN ispointer(TYPE *tp)
-{
-    tp = basetype(tp);
-    if (tp)
-    {
-        switch(tp->type)
-        {
-            case bt_far:
-            case bt_pointer:
-            case bt_seg:
-                return TRUE;
-            case bt_templateparam:
-                if (tp->templateParam->p->type == kw_int)
-                    return ispointer(tp->templateParam->p->byNonType.tp);
-                return FALSE;
-            default:
-                return FALSE;
-        }
-    }
-    return FALSE;
-}
-BOOLEAN isref(TYPE *tp)
-{
-    tp = basetype(tp);
-    if (tp)
-    {
-        switch(tp->type)
-        {
-            case bt_lref:
-                return TRUE;
-            case bt_rref:
-                return TRUE;
-            case bt_templateparam:
-                if (tp->templateParam->p->type == kw_int)
-                    return isref(tp->templateParam->p->byNonType.tp);
-                return FALSE;
-            default:
-                return FALSE;
-        }
-    }
-    return FALSE;
-}
 BOOLEAN isvoidptr(TYPE *tp)
 {
     tp = basetype(tp);
     return ispointer(tp) && isvoid(tp->btp);
-}
-BOOLEAN isfunction(TYPE *tp)
-{
-    tp = basetype(tp);
-    if (tp)
-        return tp && (tp->type == bt_func || tp->type == bt_ifunc);
-    return FALSE;
-}
-BOOLEAN isfuncptr(TYPE *tp)
-{
-    tp = basetype(tp);
-    if (tp)
-        return ispointer(tp) && tp->btp && isfunction(tp->btp);
-    return FALSE;
 }
 BOOLEAN isarray(TYPE *tp)
 {
@@ -562,21 +513,6 @@ BOOLEAN isunion(TYPE *tp)
     tp = basetype(tp);
     if (tp)
         return tp->type == bt_union;
-    return FALSE;
-}
-BOOLEAN isstructured(TYPE *tp)
-{
-    tp = basetype(tp);
-    if (tp)
-        switch(tp->type)
-        {
-            case bt_struct:
-            case bt_union:
-            case bt_class:
-                return TRUE;
-            default:
-                return FALSE;
-        }
     return FALSE;
 }
 SYMBOL *getFunctionSP(TYPE **tp)
@@ -742,10 +678,10 @@ EXPRESSION *anonymousVar(enum e_sc storage_class, TYPE *tp)
     rv->used = TRUE;
     if (theCurrentFunc)
         rv->value.i = theCurrentFunc->value.i;
-    sprintf(buf,"$anontemp%d", anonct++);
+    my_sprintf(buf,"$anontemp%d", anonct++);
     rv->name = litlate(buf);
     tp->size = basetype(tp)->size;
-    if (theCurrentFunc && !inDefaultParam)
+    if (theCurrentFunc && !inDefaultParam && !anonymousNotAlloc)
         InsertSymbol(rv, storage_class, FALSE, FALSE);
     SetLinkerNames(rv, lk_none);
     return varNode(storage_class == sc_auto || storage_class == sc_parameter ? en_auto : storage_class == sc_localstatic ? en_label : en_global, rv);
@@ -1154,6 +1090,7 @@ BOOLEAN lvalue(EXPRESSION *exp)
 }
 EXPRESSION *convertInitToExpression(TYPE *tp, SYMBOL *sp, SYMBOL *funcsp, INITIALIZER *init, EXPRESSION *thisptr, BOOLEAN isdest)
 {
+    BOOLEAN local = FALSE;
     EXPRESSION *rv = NULL, **pos = &rv;
     EXPRESSION *exp = NULL, **expp;
     EXPRESSION *expsym;
@@ -1190,6 +1127,7 @@ EXPRESSION *convertInitToExpression(TYPE *tp, SYMBOL *sp, SYMBOL *funcsp, INITIA
         case sc_auto:
         case sc_register:
         case sc_parameter:
+            local = TRUE;
             expsym = varNode(en_auto, sp);
             break;
         case sc_localstatic:
@@ -1199,6 +1137,7 @@ EXPRESSION *convertInitToExpression(TYPE *tp, SYMBOL *sp, SYMBOL *funcsp, INITIA
             }
             else
             {
+                local = TRUE;
                 expsym = varNode(en_label, sp);
             }
             break;
@@ -1210,6 +1149,7 @@ EXPRESSION *convertInitToExpression(TYPE *tp, SYMBOL *sp, SYMBOL *funcsp, INITIA
             }
             else
             {
+                local = TRUE;
                 expsym = varNode(en_global, sp);
             }
             break;
@@ -1228,6 +1168,7 @@ EXPRESSION *convertInitToExpression(TYPE *tp, SYMBOL *sp, SYMBOL *funcsp, INITIA
             break;
         case sc_external:
 /*			expsym = varNode(en_global, sp);
+            local = TRUE;
             break;
 */
         case sc_constant:
@@ -1289,7 +1230,7 @@ EXPRESSION *convertInitToExpression(TYPE *tp, SYMBOL *sp, SYMBOL *funcsp, INITIA
                         exp = exp2;
                         noClear = TRUE;
                     }
-                    else if (cparams.prm_cplusplus)
+                    else if (cparams.prm_cplusplus && !basetype(init->basetp)->sp->trivialCons)
                     {
                         TYPE *ctype = init->basetp;
                         FUNCTIONCALL *funcparams = Alloc(sizeof(FUNCTIONCALL));
@@ -1299,10 +1240,11 @@ EXPRESSION *convertInitToExpression(TYPE *tp, SYMBOL *sp, SYMBOL *funcsp, INITIA
                         callConstructor(&ctype, &expsym, funcparams, FALSE, NULL, TRUE, FALSE, FALSE, FALSE, FALSE); 
                         exp = expsym;
                     }
-                    else
+                    else 
                     {
                         exp = exprNode(en_blockassign, expsym, exp2);
                         exp->size = init->basetp->size;
+                        noClear = TRUE;
                     }
                 }
                 else
@@ -1892,3 +1834,92 @@ LLONG_TYPE imin(LLONG_TYPE x, LLONG_TYPE y)
 {
     return x < y ? x : y;
 }
+static char *write_llong(char *dest, ULLONG_TYPE val)
+{
+    char obuf[256], *p = obuf + sizeof(obuf);
+    *--p = 0;
+    if (val)
+    {
+        while (val)
+        {
+            unsigned aa = val % 10;
+            *--p = '0' + aa;
+            val = val / 10;
+        }
+    }
+    else
+    {
+        *--p = '0';
+    }
+    strcpy(dest, p);
+    return dest + strlen(dest);
+}
+static char *write_int(char *dest, unsigned val)
+{
+    char obuf[256], *p = obuf + sizeof(obuf);
+    *--p = 0;
+    if (val)
+    {
+        while (val)
+        {
+            unsigned aa = val % 10;
+            *--p = '0' + aa;
+            val = val / 10;
+        }
+    }
+    else
+    {
+        *--p = '0';
+    }
+    strcpy(dest, p);
+    return dest + strlen(dest);
+}
+void my_sprintf(char *dest, const char *fmt, ...)
+{
+    va_list aa;
+    va_start(aa, fmt);
+    while (*fmt)
+    {
+        char *q = strchr(fmt, '%');
+        if (!q)
+            q = fmt + strlen(fmt);
+        memcpy(dest, fmt, q - fmt);
+        dest += q - fmt;
+        fmt += q - fmt;
+        if (*fmt)
+        {
+            fmt++;
+            switch (*fmt++)
+            {
+                ULLONG_TYPE val;
+                unsigned val1;
+                char *str;
+                case 'l':
+                    while (*fmt == 'd' || *fmt == 'l')
+                        fmt ++;
+                    val = va_arg(aa, ULLONG_TYPE);
+                    dest = write_llong(dest, val);
+                    break;
+                case 'd':
+                case 'u':
+                    val1 = va_arg(aa, unsigned);
+                    dest = write_int(dest, val1);
+                    break;
+                case 'c':
+                    val1 = va_arg(aa, unsigned);
+                    *dest++ = val1;
+                    break;
+                case 's':
+                    str = va_arg(aa, char *);
+                    strcpy(dest, str);
+                    dest += strlen(dest);
+                    break;
+                default:
+                    fmt++;
+                    break;
+            }
+        }
+    }
+    *dest = 0;
+}
+

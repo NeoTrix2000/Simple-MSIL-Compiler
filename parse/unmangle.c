@@ -1,7 +1,7 @@
 /*
     Software License Agreement (BSD License)
     
-    Copyright (c) 1997-2011, David Lindauer, (LADSoft).
+    Copyright (c) 1997-2016, David Lindauer, (LADSoft).
     All rights reserved.
     
     Redistribution and use of this software in source and binary forms, 
@@ -180,7 +180,7 @@ static char *unmangptr(char *buf , char *name, char *last)
                 name++;
                 while (isdigit (*name))
                     n = n * 10 + (*name ++ & 0xf);
-                sprintf(buf + strlen(buf), "[%d]", n);
+                my_sprintf(buf + strlen(buf), "[%d]", n);
             }
             name = unmangptr(buf, name, last);
         }
@@ -654,6 +654,7 @@ char *unmang1(char *buf, char *name, char *last, BOOLEAN tof)
 				{
                     *buf++ =  *name++;
                     *buf++ =  *name++;
+                    *buf = 0;
 					v -= 2;
 				}
 				else
@@ -816,6 +817,7 @@ char *unmang1(char *buf, char *name, char *last, BOOLEAN tof)
             }
             break;
         case 'M':
+            buf2[0] = 0;
             if (*name == '#')
             {
                 name = unmangTemplate(buf2, name, last);
@@ -873,11 +875,11 @@ char *unmang1(char *buf, char *name, char *last, BOOLEAN tof)
             }
             if (buf3[0])
             {
-                sprintf(buf, "%s((%s)%s)", buf1, buf2, buf3);
+                my_sprintf(buf, "%s((%s)%s)", buf1, buf2, buf3);
             }
             else
             {
-                sprintf(buf, "%s %s", buf1, buf2);
+                my_sprintf(buf, "%s %s", buf1, buf2);
             }
             break;
         case 'n':

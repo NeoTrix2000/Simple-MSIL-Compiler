@@ -1,7 +1,7 @@
 /*
     Software License Agreement (BSD License)
     
-    Copyright (c) 1997-2011, David Lindauer, (LADSoft).
+    Copyright (c) 1997-2016, David Lindauer, (LADSoft).
     All rights reserved.
     
     Redistribution and use of this software in source and binary forms, 
@@ -80,6 +80,9 @@ static LEXEME *statement(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent,
                            BOOLEAN viacontrol);
 static LEXEME *compound(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent,   
                         BOOLEAN first);
+
+static BLOCKDATA *caseDestructBlock;
+
 void statement_ini(BOOLEAN global)
 {
     if (!global)
@@ -87,6 +90,7 @@ void statement_ini(BOOLEAN global)
     linesHead = linesTail = NULL;
     functionCanThrow = FALSE;
     funcNesting = 0;
+    caseDestructBlock = NULL;
 }
 void InsertLineData(int lineno, int fileindex, char *fname, char *line)
 {
@@ -335,13 +339,25 @@ static void thunkCatchCleanup(STATEMENT *st, SYMBOL *funcsp, BLOCKDATA *src, BLO
         srch = srch->next;
     }
 }
+static void ThunkUndestructSyms(HASHTABLE *syms)
+{
+    HASHREC *hr = syms->table[0];
+    while (hr)
+    {
+        SYMBOL *sp = (SYMBOL *)hr->p;
+        sp->destructed = TRUE;
+        hr = hr->next;
+    }
+}
 static void thunkRetDestructors(EXPRESSION **exp, HASHTABLE *top, HASHTABLE *syms)
 {
     if (syms)
     {
         if (syms != top)
+        {
             thunkRetDestructors(exp, top, syms->chain);
-        destructBlock(exp, syms->table[0], FALSE);
+            destructBlock(exp, syms->table[0], FALSE);
+        }
     }
 }
 static void thunkGotoDestructors(EXPRESSION **exp, BLOCKDATA *gotoTab, BLOCKDATA *labelTab)
@@ -357,15 +373,53 @@ static void thunkGotoDestructors(EXPRESSION **exp, BLOCKDATA *gotoTab, BLOCKDATA
         thunkRetDestructors(exp, realtop->table, gotoTab->table);
     }
 }
+static void InSwitch()
+{
+
+}
+static void HandleStartOfCase(BLOCKDATA *parent)
+{
+    // this is a little buggy in that it doesn't check to see if we are already in a switch
+    // statement, however if we aren't we should get a compile erroir that would halt program generation anyway
+    if (parent != caseDestructBlock)
+    {
+        parent->caseDestruct = caseDestructBlock;
+        caseDestructBlock = parent;
+    }
+}
+static void HandleEndOfCase(BLOCKDATA *parent)
+{
+    if (parent == caseDestructBlock)
+    {
+        EXPRESSION *exp = NULL;
+        STATEMENT *st;
+        // the destruct is only used for endin
+        destructBlock(&exp, localNameSpace->syms->table[0], FALSE);
+        if (exp)
+        {
+            st = stmtNode(NULL, parent, st_nop);
+            st->destexp = exp;
+        }
+        ThunkUndestructSyms(localNameSpace->syms);
+    }
+}
+static void HandleEndOfSwitchBlock(BLOCKDATA *parent)
+{
+    if (parent == caseDestructBlock)
+    {
+        caseDestructBlock = caseDestructBlock->caseDestruct;
+    }
+}
 static LEXEME *statement_break(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent)
 {
-    BLOCKDATA *breakableStatement = parent;
+    BLOCKDATA *breakableStatement = parent, *last = NULL;
     EXPRESSION *exp = NULL;
     (void)lex;
     (void)funcsp;
     (void)parent;
-    while (breakableStatement && (breakableStatement->type == begin ||breakableStatement->type == kw_try ||breakableStatement->type == kw_catch))
+    while (breakableStatement && (breakableStatement->type == begin ||breakableStatement->type == kw_try ||breakableStatement->type == kw_catch || breakableStatement->type == kw_if || breakableStatement->type == kw_else))
     {
+        last = breakableStatement;
         breakableStatement = breakableStatement->next;
     }
     
@@ -375,7 +429,8 @@ static LEXEME *statement_break(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent)
     {
         STATEMENT *st ;
         currentLineData(parent, lex, 0);
-        thunkRetDestructors(&exp, breakableStatement->table, localNameSpace->syms);
+        if (last)
+            thunkRetDestructors(&exp, last->table, localNameSpace->syms);
         st = stmtNode(lex, parent, st_goto);
         st->label = breakableStatement->breaklabel;
         st->destexp = exp;
@@ -428,7 +483,7 @@ static LEXEME *statement_case(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent)
             if ((*cases)->val == val)
             {
                 char buf[256];
-                sprintf(buf, LLONG_FORMAT_SPECIFIER, val);
+                my_sprintf(buf, LLONG_FORMAT_SPECIFIER, val);
                 preverror(ERR_DUPLICATE_CASE, buf, (*cases)->file, (*cases)->line);
                 break;
             }
@@ -458,11 +513,13 @@ static LEXEME *statement_case(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent)
 static LEXEME *statement_continue(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent)
 {
     BLOCKDATA *continuableStatement = parent;
+    BLOCKDATA *last = NULL;
     EXPRESSION *exp = NULL;
     (void)lex;
     (void)funcsp;
-    while (continuableStatement && (continuableStatement->type == kw_switch || continuableStatement->type == begin || continuableStatement->type == kw_try || continuableStatement->type == kw_catch))
+    while (continuableStatement && (continuableStatement->type == kw_switch || continuableStatement->type == begin || continuableStatement->type == kw_try || continuableStatement->type == kw_catch || continuableStatement->type == kw_if || continuableStatement->type == kw_else))
     {
+        last = continuableStatement;
         continuableStatement = continuableStatement->next;
     }
     if (!continuableStatement)
@@ -470,7 +527,8 @@ static LEXEME *statement_continue(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent
     else
     {
         STATEMENT *st;
-        thunkRetDestructors(&exp, continuableStatement->table, localNameSpace->syms);
+        if (last)
+            thunkRetDestructors(&exp, last->table, localNameSpace->syms);
         currentLineData(parent, lex, 0);
         st = stmtNode(lex, parent, st_goto);
         st->label = continuableStatement->continuelabel;		
@@ -655,7 +713,7 @@ static LEXEME *statement_for(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent)
                 {
                     lex = expression_no_comma(lex, funcsp, NULL, &selectTP, &select, NULL, 0);
                 }
-                if (!selectTP)
+                if (!selectTP || selectTP->type == bt_any)
                 {
                     error(ERR_EXPRESSION_SYNTAX);
                 }
@@ -667,15 +725,18 @@ static LEXEME *statement_for(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent)
                     TYPE *tpref = Alloc(sizeof(TYPE));
                     EXPRESSION *rangeExp = anonymousVar(sc_auto, tpref);
                     SYMBOL *rangeSP = rangeExp->v.sp;
+                    if (isstructured(selectTP))
+                        selectTP = basetype(selectTP)->sp->tp;
                     deref(&stdpointer, &rangeExp);
                     needkw(&lex, closepa);
                     while (castvalue(select))
                         select = select->left;
-                    if (lvalue(select) && select->type != en_l_ref)
+                    if (lvalue(select) && select->type != en_l_ref && !isstructured(selectTP))
                         select = select->left;
                     tpref->size = getSize(bt_pointer);
                     tpref->type = bt_rref;
                     tpref->btp = selectTP;
+                    tpref->rootType = tpref;
                     st = stmtNode(lex, forstmt, st_expr);
                     st->select = exprNode(en_assign, rangeExp, select);
                     if (!isstructured(selectTP))
@@ -702,6 +763,7 @@ static LEXEME *statement_for(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent)
                         thisTP.type = bt_pointer;
                         thisTP.size = getSize(bt_pointer);
                         thisTP.btp = rangeSP->tp->btp;
+                        thisTP.rootType = &thisTP;
                         sbegin = search("begin", basetype(selectTP)->syms);
                         send = search("end", basetype(selectTP)->syms);
                         if (sbegin && send)
@@ -781,7 +843,7 @@ static LEXEME *statement_for(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent)
                             sbegin = namespacesearch("begin", globalNameSpace, FALSE, FALSE);
                             send = namespacesearch("end", globalNameSpace, FALSE, FALSE);
                             // now possibly lookup in namespace std
-                            if (!sbegin || send)
+                            if (!sbegin || !send)
                             {
                                 SYMBOL *standard = namespacesearch("std", globalNameSpace, FALSE, FALSE);
                                 if (standard)
@@ -874,6 +936,7 @@ static LEXEME *statement_for(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent)
                                             fc->arguments->tp->type = bt_lref;
                                             fc->arguments->tp->size = getSize(bt_pointer);
                                             fc->arguments->tp->btp = fcb.arguments->tp;
+                                            fc->arguments->tp->rootType = fc->arguments->tp;
                                         }
                                         ibegin = exprNode(en_func, NULL, NULL);
                                         ibegin->v.func = fc;
@@ -902,6 +965,7 @@ static LEXEME *statement_for(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent)
                                             fc->arguments->tp->type = bt_lref;
                                             fc->arguments->tp->size = getSize(bt_pointer);
                                             fc->arguments->tp->btp = fce.arguments->tp;
+                                            fc->arguments->tp->rootType = fc->arguments->tp;
                                         }
                                         iend = exprNode(en_func, NULL, NULL);
                                         iend->v.func = fc;
@@ -1071,7 +1135,10 @@ static LEXEME *statement_for(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent)
                                 while (isconst(*tp) || isvolatile(*tp))
                                     tp = &(*tp)->btp;
                                 if ((*tp)->type == bt_auto && starType)
+                                {
                                     (*tp) = starType;
+                                    UpdateRootTypes(declSP->tp);
+                                }
                                 if (!comparetypes(declSP->tp, starType, TRUE))
                                 {
                                     error(ERR_OPERATOR_STAR_FORRANGE_WRONG_TYPE);
@@ -1130,6 +1197,7 @@ static LEXEME *statement_for(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent)
                         else
                         {
                             TYPE *ppType = iteratorType;
+                            ppType = basetype(ppType);
                             st->select = eBegin;
                             if (ispointer(iteratorType))
                             {
@@ -1595,7 +1663,26 @@ static EXPRESSION *ConvertReturnToRef(EXPRESSION *exp, TYPE *tp, TYPE *boundTP)
         exp2 = exp;
         if (!isstructured(basetype(tp)->btp))
         {
-            exp = exp->left;
+            if (isref(basetype(tp)->btp))
+            {
+                if (!isstructured(basetype(basetype(tp)->btp)->btp))
+                {
+                    if (exp->left->type != en_auto || exp->left->v.sp->storage_class != sc_parameter)
+                        exp = exp->left;
+                    if (exp->type == en_l_ref)
+                        if (exp->left->type != en_auto || exp->left->v.sp->storage_class != sc_parameter)
+                            exp = exp->left;
+                }
+                else
+                {
+                    exp = exp->left;
+                }
+            }
+            else
+            {
+                if (exp->left->type != en_auto || exp->left->v.sp->storage_class != sc_parameter)
+                    exp = exp->left;
+            }
         }
         else if (basetype(tp)->btp->type == bt_aggregate)
         {
@@ -1804,7 +1891,7 @@ static LEXEME *statement_return(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent)
                         funcparams->arguments->exp = exp1;
                         oldrref = basetype(tp1)->rref;
                         oldlref = basetype(tp1)->lref;
-                        basetype(tp1)->rref = exp1->type == en_func || exp1->type == en_thisref || exp1->type == en_auto;
+                        basetype(tp1)->rref = exp1->type == en_func || exp1->type == en_thisref || exp1->type == en_auto && exp1->v.sp->storage_class != sc_parameter;// || lvalue(exp1) && (exp1->type != en_l_ref || exp1->left->type != en_auto || exp1->left->v.sp->storage_class != sc_parameter);
                         basetype(tp1)->lref = !basetype(tp1)->rref;
                         maybeConversion = FALSE;
                         returntype = tp;
@@ -2711,26 +2798,42 @@ static LEXEME *statement(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent,
             parent->nosemi = TRUE;
             break;
         case kw_case:
+            if (cparams.prm_cplusplus)
+                HandleEndOfCase(parent);
             lex = statement_case(lex, funcsp, parent);
             parent->nosemi = TRUE;
+            if (cparams.prm_cplusplus)
+                HandleStartOfCase(parent);
             parent->lastcaseordefault = TRUE;
             break;
         case kw_default:
+            if (cparams.prm_cplusplus)
+                HandleEndOfCase(parent);
             lex = statement_default(lex, funcsp, parent);
             parent->nosemi = TRUE;
+            if (cparams.prm_cplusplus)
+                HandleStartOfCase(parent);
             parent->lastcaseordefault = TRUE;
             break;
         case kw_continue:
             lex = statement_continue(lex, funcsp, parent);
+            if (cparams.prm_cplusplus)
+                HandleEndOfCase(parent);
             break;
         case kw_break:
             lex = statement_break(lex, funcsp, parent);
+            if (cparams.prm_cplusplus)
+                HandleEndOfCase(parent);
             break;
         case kw_goto:
             lex = statement_goto(lex, funcsp, parent);
+            if (cparams.prm_cplusplus)
+                HandleEndOfCase(parent);
             break;
         case kw_return:
             lex = statement_return(lex, funcsp, parent);
+            if (cparams.prm_cplusplus)
+                HandleEndOfCase(parent);
             break;
         case semicolon:
             break;
@@ -2809,7 +2912,7 @@ static void insertXCInfo(SYMBOL *funcsp)
     char name[2048];
     SYMBOL *sp; 
     makeXCTab(funcsp);
-    sprintf(name, "@$xc%s", funcsp->decoratedName);
+    my_sprintf(name, "@$xc%s", funcsp->decoratedName);
     sp = makeID(sc_global, &stdpointer, NULL, litlate(name));
     sp->linkage = lk_virtual;
     sp->decoratedName = sp->errname = sp->name;
@@ -2857,7 +2960,7 @@ static void insertXCInfo(SYMBOL *funcsp)
         }
     }
 }
-static LEXEME *compound(LEXEME *lex, SYMBOL *funcsp, 
+static LEXEME *compound(LEXEME *lex, SYMBOL *funcsp,
                         BLOCKDATA *parent,   
                         BOOLEAN first)
 {
@@ -3011,6 +3114,8 @@ static LEXEME *compound(LEXEME *lex, SYMBOL *funcsp,
         if (!strcmp(funcsp->name, overloadNameTab[CI_DESTRUCTOR]))
             thunkDestructorTail(blockstmt, funcsp->parentClass, funcsp, basetype(funcsp->tp)->syms);
     }
+    if (cparams.prm_cplusplus)
+        HandleEndOfSwitchBlock(blockstmt);
     FreeLocalContext(blockstmt, funcsp, codeLabel++);
     if (first && !blockstmt->needlabel && !isvoid(basetype(funcsp->tp)->btp) && basetype(funcsp->tp)->btp->type != bt_auto && !funcsp->isConstructor)
     {
@@ -3250,7 +3355,7 @@ static int inlineStatementCount(STATEMENT *block)
                 rv += inlineStatementCount(block->lower) + inlineStatementCount(block->blockTail);
                 break;
             case st_passthrough:
-                
+            case st_nop:
                 break;
             case st_datapassthrough:
                 break;

@@ -1,7 +1,7 @@
 /*
     Software License Agreement (BSD License)
     
-    Copyright (c) 1997-2011, David Lindauer, (LADSoft).
+    Copyright (c) 1997-2016, David Lindauer, (LADSoft).
     All rights reserved.
   
     Redistribution and use of this software in source and binary forms, 
@@ -39,7 +39,7 @@
 
 extern NAMESPACEVALUES *globalNameSpace, *localNameSpace;
 extern char *overloadNameTab[];
-extern TYPE stdpointer, stdvoid, stdauto;
+extern TYPE stdpointer, stdvoid, stdauto, stdint;
 extern int nextLabel;
 extern char infile[];
 
@@ -70,11 +70,11 @@ static char *LambdaName(void)
         else
             p++;
         
-        sprintf(lambdaQualifier, "__%s__%d", p, rand()*RAND_MAX + rand());
+        my_sprintf(lambdaQualifier, "__%s__%d", p, rand()*RAND_MAX + rand());
         while ((p = strchr(lambdaQualifier, '.')) != 0)
             *p = '_';			
     }
-    sprintf(buf,"$$LambdaClosure%d%s", lambdaIndex++, lambdaQualifier);
+    my_sprintf(buf,"$$LambdaClosure%d%s", lambdaIndex++, lambdaQualifier);
     return litlate(buf);
 }
 static void lambda_insert(SYMBOL *sym, LAMBDA *lambdas)
@@ -103,6 +103,7 @@ static TYPE *lambda_type(TYPE *tp, enum e_cm mode)
         tp1->type = bt_lref;
         tp1->size = getSize(bt_pointer);
         tp1->btp = tp;
+        tp1->rootType = tp1;
         tp = tp1;
     }
     else // cmValue
@@ -120,6 +121,7 @@ static TYPE *lambda_type(TYPE *tp, enum e_cm mode)
             tp1->type = bt_const;
             tp1->size = tp->size;
             tp1->btp = tp;
+            tp1->rootType = tp->rootType;
             tp = tp1;
         }
     }
@@ -285,6 +287,7 @@ static TYPE * realArgs(SYMBOL *func)
         tp->btp = Alloc(sizeof(TYPE));
         *(tp->btp) = *(func->tp->btp);
     }
+    UpdateRootTypes(tp);
     func->tp = tp;
     dest = &basetype(func->tp)->syms->table[0] ;
     src = lambdas->funcargs;
@@ -302,7 +305,7 @@ static void createCaller(void)
     FUNCTIONCALL *params = Alloc(sizeof(FUNCTIONCALL));
     TYPE *args = realArgs(lambdas->func);
     SYMBOL *func = makeID(sc_member, args, NULL, overloadNameTab[CI_FUNC]);
-    SYMBOL *lambdaCall = search(isstructured(basetype(lambdas->func->tp)->btp) ? "__lambdaCallS" : "__lambdaCall", globalNameSpace->syms);
+    SYMBOL *lambdaCall = namespacesearch(isstructured(basetype(lambdas->func->tp)->btp) ? "__lambdaCallS" : "__lambdaCall", globalNameSpace, FALSE, FALSE);
     BLOCKDATA block1, block2;
     STATEMENT *st;
     lambdaCall = (SYMBOL *)lambdaCall->tp->syms->table[0]->p;
@@ -340,7 +343,7 @@ static SYMBOL *createPtrCaller(SYMBOL *self)
     FUNCTIONCALL *params = Alloc(sizeof(FUNCTIONCALL));
     TYPE *pargs = realArgs(lambdas->func);
     SYMBOL *func = makeID(sc_static, pargs, NULL, "$ptrcaller");
-    SYMBOL *lambdaCall = search(isstructured(basetype(lambdas->func->tp)->btp) ? "__lambdaPtrCallS" : "__lambdaPtrCall", globalNameSpace->syms);
+    SYMBOL *lambdaCall = namespacesearch(isstructured(basetype(lambdas->func->tp)->btp) ? "__lambdaPtrCallS" : "__lambdaPtrCall", globalNameSpace, FALSE, FALSE);
     BLOCKDATA block1, block2;
     STATEMENT *st;
     EXPRESSION *exp = varNode(en_label, self);
@@ -391,6 +394,8 @@ static void createConverter(SYMBOL *self)
     func->tp->btp->type = bt_pointer;
     func->tp->btp->size = getSize(bt_pointer);
     func->tp->btp->btp = args;
+    func->tp->rootType = func->tp;
+    func->tp->btp->rootType = func->tp->btp;
     func->tp->syms = CreateHashTable(1);
     func->linkage = lk_virtual;
     func->isInline = FALSE;
@@ -433,6 +438,7 @@ static void finishClass(void)
         tp2->type = bt_const;
         tp2->size = lambdas->func->tp->size;
         tp2->btp = lambdas->func->tp;
+        tp2->rootType = lambdas->func->tp->rootType;
         lambdas->func->tp = tp2;
     }
     createCaller();
@@ -604,6 +610,7 @@ LEXEME *expression_lambda(LEXEME *lex, SYMBOL *funcsp, TYPE *atp, TYPE **tp, EXP
     ltp->syms = CreateHashTable(1);
     ltp->tags = CreateHashTable(1);
     ltp->size = 0;
+    ltp->rootType = ltp;
     self->captured = CreateHashTable(1);
     self->oldSyms = localNameSpace->syms;
     self->oldTags = localNameSpace->tags;
@@ -775,8 +782,18 @@ LEXEME *expression_lambda(LEXEME *lex, SYMBOL *funcsp, TYPE *atp, TYPE **tp, EXP
         TYPE *tpx = &stdvoid;
         HASHREC *hr;
         lex = getFunctionParams(lex, NULL, &self->func, &tpx, FALSE, sc_auto);
-        self->funcargs = self->func->tp->syms->table[0];
-        hr = self->func->tp->syms->table[0];
+        if (!self->func->tp->syms)
+        {
+            errorstr(ERR_MISSING_TYPE_FOR_PARAMETER, "undefined");
+            *tp = &stdint;
+            *exp = intNode(en_c_i, 0);
+            return lex;
+        }
+        else
+        {
+            self->funcargs = self->func->tp->syms->table[0];
+            hr = self->func->tp->syms->table[0];
+        }
         while (hr)
         {
             SYMBOL *sym = (SYMBOL *)hr->p;
@@ -816,12 +833,14 @@ LEXEME *expression_lambda(LEXEME *lex, SYMBOL *funcsp, TYPE *atp, TYPE **tp, EXP
         tp1->type = bt_func;
         tp1->size = getSize(bt_pointer);
         tp1->btp = &stdvoid;
+        tp1->rootType = tp1;
         tp1->sp = self->func;
         self->func->tp = tp1;
         spi = makeID(sc_parameter, tp1, NULL, AnonymousName());
         spi->anonymous = TRUE;
         spi->tp = Alloc(sizeof(TYPE));
         spi->tp->type = bt_void;
+        spi->tp->rootType = spi->tp;
         insert(spi, localNameSpace->syms);
         SetLinkerNames(spi, lk_cpp);
         self->func->tp->syms = localNameSpace->syms;
@@ -845,6 +864,7 @@ LEXEME *expression_lambda(LEXEME *lex, SYMBOL *funcsp, TYPE *atp, TYPE **tp, EXP
     SetLinkerNames(lambdas->func, lk_cdecl);
     injectThisPtr(lambdas->func, basetype(lambdas->func->tp)->syms);
     lambdas->func->tp->btp = self->functp;
+    lambdas->func->tp->rootType = lambdas->func->tp;
     lambdas->func->linkage = lk_virtual;
     lambdas->func->isInline = TRUE;
     ssl.str = self->cls;

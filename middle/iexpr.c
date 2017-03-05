@@ -1,7 +1,7 @@
 /*
     Software License Agreement (BSD License)
     
-    Copyright (c) 1997-2011, David Lindauer, (LADSoft).
+    Copyright (c) 1997-2016, David Lindauer, (LADSoft).
     All rights reserved.
     
     Redistribution and use of this software in source and binary forms, 
@@ -1873,6 +1873,7 @@ static int gen_parm(INITLIST *a, SYMBOL *funcsp)
             tp->type = bt_objectArray;
             tp->size = getSize(bt_pointer);
             tp->btp = &stdpointer;
+            tp->rootType = tp->btp;
             objectArray_exp = anonymousVar(sc_auto, tp);
         }
         intermed_tail->varargPrev = TRUE;

@@ -1,7 +1,7 @@
 /*
     Software License Agreement (BSD License)
     
-    Copyright (c) 1997-2011, David Lindauer, (LADSoft).
+    Copyright (c) 1997-2016, David Lindauer, (LADSoft).
     All rights reserved.
     
     Redistribution and use of this software in source and binary forms, 
@@ -107,9 +107,9 @@ void browse_init(void)
 static void getBrowseName(char *buf, SYMBOL *sp)
 {
     if (sp->storage_class == sc_localstatic)
-        sprintf(buf, "_%s", sp->name);
+        my_sprintf(buf, "_%s", sp->name);
     else
-        sprintf(buf, "%s", sp->decoratedName);
+        my_sprintf(buf, "%s", sp->decoratedName);
 }
 static void addBrowseRecord(BROWSEINFO *bri)
 {

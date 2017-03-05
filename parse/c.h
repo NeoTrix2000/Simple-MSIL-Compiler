@@ -1,7 +1,7 @@
 /*
     Software License Agreement (BSD License)
     
-    Copyright (c) 1997-2011, David Lindauer, (LADSoft).
+    Copyright (c) 1997-2016, David Lindauer, (LADSoft).
     All rights reserved.
     
     Redistribution and use of this software in source and binary forms, 
@@ -59,6 +59,28 @@
 
 #define MACRO_REPLACE_SIZE (128 * 1024)
 
+#define basetype(x) ((x) && (x)->rootType ? (x)->rootType : (x))
+
+
+#define __isref(x) ((x)->type == bt_lref || (x)->type == bt_rref)
+#define isref(x) (__isref(basetype(x)) || \
+                 (x)->type == bt_templateparam && \
+                 (x)->templateParam->p->type == kw_int && \
+                 __isref((x)->templateParam->p->byNonType.tp))
+
+#define __ispointer(x) ((x)->type == bt_pointer || (x)->type == bt_seg)
+#define ispointer(x) (__ispointer(basetype(x)) || \
+                 (x)->type == bt_templateparam && \
+                 (x)->templateParam->p->type == kw_int && \
+                 __ispointer((x)->templateParam->p->byNonType.tp))
+
+#define __isfunction(x) ((x)->type == bt_func || (x)->type == bt_ifunc)
+#define isfunction(x) (__isfunction(basetype(x)))
+
+#define isfuncptr(x) (ispointer(x) && basetype(x)->btp && isfunction(basetype(x)->btp))
+#define __isstructured(x) ((x)->type == bt_class || (x)->type == bt_struct || (x)->type == bt_union)
+#define isstructured(x) (__isstructured(basetype(x)))
+
 typedef struct
 {
     LCHAR *str;
@@ -103,7 +125,7 @@ enum e_kw
         kw__pascal, kw__stdcall, kw__cdecl, kw__intrinsic, kw_asm, kw__loadds,
         kw__far, kw_asmreg, kw_asminst, kw__indirect, kw__export, kw__import, kw___func__,
         kw__near, kw__seg, kw___typeid, kw___int64, kw_alloca, kw__msil_rtl,
-        kw___va_list__,  kw___va_typeof__, kw__unmanaged, 
+        kw___va_list__,  kw___va_typeof__, kw__unmanaged,  kw__uuid, kw__uuidof,
     /* These next are generic register names */
     kw_D0, kw_D1, kw_D2, kw_D3, kw_D4, kw_D5, kw_D6, kw_D7, kw_D8, kw_D9, kw_DA,
         kw_DB, kw_DC, kw_DD, kw_DE, kw_DF, kw_A0, kw_A1, kw_A2, kw_A3, kw_A4,
@@ -161,7 +183,7 @@ enum e_node
 
 enum e_stmt
 {
-    st_line, st_expr, st_declare, st_goto, st_asmgoto, st_asmcond, 
+    st_line, st_nop, st_expr, st_declare, st_goto, st_asmgoto, st_asmcond, 
     st_loopgoto, st_select, st_notselect, st_varstart, st_dbgblock,
     st_switch, st_return, st_block, st_throw, st_try, st_catch,
     st__genword, st_passthrough, st_datapassthrough, st_abs, st_label
@@ -324,6 +346,7 @@ typedef    struct typ
         enum e_bt type; /* the type */
         long size; /* total size of type */
         struct typ *btp; /* pointer to next type (pointers & arrays */
+        struct typ *rootType; /* pointer to base type of sequence */
         int used:1; /* type has actually been used in a declaration or cast or expression */
         int array:1; /* not a dereferenceable pointer */
         int vla:1;   /* varriable length array */
@@ -395,6 +418,7 @@ typedef struct stmt
 typedef struct blockdata
 {
     struct blockdata *next;
+    struct blockdata *caseDestruct;
     enum e_kw type;
     CASEDATA *cases;
     STATEMENT *head, *tail;
@@ -591,6 +615,8 @@ typedef struct sym
     /* Also name for CPP overload lists */
     /* also default for template parameters, is a TYP */
     char *importfile; /* import name */
+    unsigned char *uuid; /* Microsoft: GUID */
+    int uuidLabel; /* Microsoft: Label for a GUID which has been instantiated */
     struct sym *overloadName;
     struct sym *typedefSym;
     struct sym *mainsym; /* pointer to the global version of a copied symbol */
@@ -667,6 +693,7 @@ typedef struct _memberInitializers
     char *file;
     struct lexeme *initData;
     int packed : 1;
+    int delegating : 1;
 } MEMBERINITIALIZERS;
 
 typedef struct _baseClass
@@ -714,8 +741,11 @@ typedef struct _templateParam
     enum e_kw type;
     int index:8;
     int packed:1;
+    int usedAsUnpacked : 1;
     int initialized:1;
-    SYMBOL *sym, *packsym;
+    int lref:1;
+    int rref:1;
+    SYMBOL *packsym;
     void *hold; /* value held during partial template ordering */
     union {
         // the dflt & val fields must be in the same place for each item
@@ -759,6 +789,7 @@ typedef struct _templateParam
 typedef struct _templateParamList
 {
     struct _templateParamList *next;
+    SYMBOL *argsym;
     TEMPLATEPARAM *p;
 } TEMPLATEPARAMLIST;
 

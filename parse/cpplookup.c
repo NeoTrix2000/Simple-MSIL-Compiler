@@ -1,7 +1,7 @@
 /*
     Software License Agreement (BSD License)
     
-    Copyright (c) 1997-2011, David Lindauer, (LADSoft).
+    Copyright (c) 1997-2016, David Lindauer, (LADSoft).
     All rights reserved.
     
     Redistribution and use of this software in source and binary forms, 
@@ -56,6 +56,8 @@ extern int instantiatingTemplate;
 extern INCLUDES *includes;
 extern BOOLEAN inTemplateType;
 extern LIST *nameSpaceList;
+
+static int insertFuncs(SYMBOL **spList, SYMBOL **spFilterList, LIST *gather, FUNCTIONCALL *args, TYPE *atp);
 
 #define DEBUG
 
@@ -199,6 +201,7 @@ SYMBOL *namespacesearch(char *name, NAMESPACEVALUES *ns, BOOLEAN qualified, BOOL
                 TYPE *tp = Alloc(sizeof(TYPE));
                 SYMBOL *sp = makeID(sc_overloads, tp, NULL, ((SYMBOL *)lst->data)->name);
                 tp->type = bt_aggregate;
+                tp->rootType = tp;
                 tp->sp = sp;
                 tp->syms = CreateHashTable(1);
                 a = lst;
@@ -248,7 +251,7 @@ LEXEME *nestedPath(LEXEME *lex, SYMBOL **sym, NAMESPACEVALUES **ns,
     TEMPLATESELECTOR *templateSelector = NULL, **last = &templateSelector;
     LEXEME *placeholder = lex, *finalPos;
     BOOLEAN hasTemplate = FALSE;
-    TEMPLATEPARAM *templateParamAsTemplate = NULL;
+    TEMPLATEPARAMLIST *templateParamAsTemplate = NULL;
     TYPE *dependentType = NULL;
 
     if (sym)
@@ -303,10 +306,10 @@ LEXEME *nestedPath(LEXEME *lex, SYMBOL **sym, NAMESPACEVALUES **ns,
             int level = -1;
             if (!strSym)
             {
-                TEMPLATEPARAM *tparam = TemplateLookupSpecializationParam(buf);
+                TEMPLATEPARAMLIST *tparam = TemplateLookupSpecializationParam(buf);
                 if (tparam)
                 {
-                    sp = tparam->sym;
+                    sp = tparam->argsym;
                 }
                 else if (!qualified)
                 {
@@ -330,7 +333,7 @@ LEXEME *nestedPath(LEXEME *lex, SYMBOL **sym, NAMESPACEVALUES **ns,
                             }
                             else if (params->p->type == kw_template)
                             {
-                                templateParamAsTemplate = params->p;
+                                templateParamAsTemplate = params;
                                 sp = params->p->byTemplate.val;
                             }
                             else
@@ -421,7 +424,7 @@ LEXEME *nestedPath(LEXEME *lex, SYMBOL **sym, NAMESPACEVALUES **ns,
                 break;
             if (templateParamAsTemplate)
             {
-                matchTemplateSpecializationToParams(current, templateParamAsTemplate->byTemplate.args, templateParamAsTemplate->sym);
+                matchTemplateSpecializationToParams(current, templateParamAsTemplate->p->byTemplate.args, templateParamAsTemplate->argsym);
             }
             if (hasTemplateArgs)
             {
@@ -454,17 +457,30 @@ LEXEME *nestedPath(LEXEME *lex, SYMBOL **sym, NAMESPACEVALUES **ns,
                     }
                     if (!deferred)
                     {
-                        SYMBOL *sp1 = sp;
-                        sp = GetClassTemplate(sp, current, FALSE);
-                        if (!sp)
-                            if (templateNestingCount)
-                            {
-                                sp = sp1;
-                            }
+                        TEMPLATEPARAMLIST *p = current;
+                        while (p)
+                        {
+                            if (p->p->usedAsUnpacked)
+                                break;
+
+                            p = p->next;
+                        }
+                        if (p)
+                            deferred = TRUE;
+                        if (!deferred)
+                        {
+                            SYMBOL *sp1 = sp;
+                            sp = GetClassTemplate(sp, current, FALSE);
+                            if (!sp)
+                                if (templateNestingCount)
+                                {
+                                    sp = sp1;
+                                }
+                        }
                     }
                 }
             }
-            if (sp)
+            if (sp && !deferred)
                 sp->tp = PerformDeferredInitialization (sp->tp, NULL);
             lex = getsym();
             finalPos = lex;
@@ -527,6 +543,7 @@ LEXEME *nestedPath(LEXEME *lex, SYMBOL **sym, NAMESPACEVALUES **ns,
     {
         TYPE *tp = Alloc(sizeof(TYPE));
         tp->type = bt_templateselector;
+        tp->rootType = tp;
         *sym = makeID(sc_global, tp, NULL, AnonymousName());
         (*sym)->templateSelector = templateSelector;
         tp->sp = *sym;
@@ -604,8 +621,11 @@ SYMBOL *templatesearch(char *name, TEMPLATEPARAMLIST *arg)
 {
     while (arg)
     {
-        if (arg->p->sym && !strcmp(arg->p->sym->name, name))
-            return arg->p->sym;
+        if (arg->argsym && !strcmp(arg->argsym->name, name))
+            if (arg->p->type == kw_template && arg->p->byTemplate.dflt)
+                return arg->p->byTemplate.dflt;
+            else
+                return arg->argsym;
         arg = arg->next;
     }
     return NULL;
@@ -620,7 +640,7 @@ TEMPLATEPARAMLIST *getTemplateStruct(char *name)
         {
             while (arg)
             {
-                if (!strcmp(arg->p->sym->name, name))
+                if (!strcmp(arg->argsym->name, name))
                     return arg;
                 arg = arg->next;
             }
@@ -850,10 +870,10 @@ LEXEME *nestedSearch(LEXEME *lex, SYMBOL **sym, SYMBOL **strSym, NAMESPACEVALUES
             }
             else
             {
-                TEMPLATEPARAM *tparam = TemplateLookupSpecializationParam(lex->value.s.a);
+                TEMPLATEPARAMLIST *tparam = TemplateLookupSpecializationParam(lex->value.s.a);
                 if (tparam)
                 {
-                    *sym = tparam->sym;
+                    *sym = tparam->argsym;
                 }
                 else
                 {
@@ -988,7 +1008,7 @@ LEXEME *getIdName(LEXEME *lex, SYMBOL *funcsp, char *buf, int *ov, TYPE **castTy
             
             if (ISID(lex))
             {
-                sprintf(buf, "%s@%s", overloadNameTab[CI_LIT], lex->value.s.a);
+                my_sprintf(buf, "%s@%s", overloadNameTab[CI_LIT], lex->value.s.a);
                 *ov = CI_LIT;
             }
             else
@@ -1525,6 +1545,7 @@ static TYPE *toThis(TYPE *tp)
     tpx->type = bt_pointer;
     tpx->size = getSize(bt_pointer);
     tpx->btp = tp;
+    tpx->rootType = tpx;
     return tpx;
 }
 static int compareConversions(SYMBOL *spLeft, SYMBOL *spRight, enum e_cvsrn *seql, enum e_cvsrn *seqr,
@@ -2289,6 +2310,7 @@ static SYMBOL *getUserConversion(int flags,
             funcparams.thisptr = expa;
             funcparams.thistp = &thistp;
             thistp.btp = tpa;
+            thistp.rootType = &thistp;
             thistp.type = bt_pointer;
             thistp.size = getSize(bt_pointer);
             while (lst2)
@@ -2382,6 +2404,7 @@ static SYMBOL *getUserConversion(int flags,
                                         lref = TRUE;
                                 }
                                 thistp.btp = tpa;
+                                thistp.rootType = &thistp;
                                 thistp.type = bt_pointer;
                                 thistp.size = getSize(bt_pointer);
                                 getSingleConversion(((SYMBOL *)args->p)->tp, &thistp, &exp, &n2, seq3, candidate, NULL, TRUE);
@@ -2731,8 +2754,8 @@ BOOLEAN sameTemplate(TYPE *P, TYPE *A)
 void getSingleConversion(TYPE *tpp, TYPE *tpa, EXPRESSION *expa, int *n, 
                                 enum e_cvsrn *seq, SYMBOL *candidate, SYMBOL **userFunc, BOOLEAN allowUser)
 {
-    BOOLEAN lref;
-    BOOLEAN rref;
+    BOOLEAN lref=FALSE;
+    BOOLEAN rref=FALSE;
     EXPRESSION *exp = expa;
     TYPE *tpax = tpa;
     TYPE *tppx = tpp;
@@ -2827,7 +2850,7 @@ void getSingleConversion(TYPE *tpp, TYPE *tpa, EXPRESSION *expa, int *n,
             seq[(*n)++] = CV_QUALS;
         if (lref && !rref && tpp->type == bt_rref)
             seq[(*n)++] = CV_LVALUETORVALUE;
-        if (tpp->type == bt_rref && lref && !isfunction(tpa) && !isarithmeticconst(expa))
+        if (tpp->type == bt_rref && lref && !isfunction(tpa) && !isfuncptr(tpa) && !isarithmeticconst(expa))
         {
             // lvalue to rvalue ref not allowed unless the lvalue is nonvolatile and const
             if (!isDerivedFromTemplate(tppx))
@@ -2880,6 +2903,24 @@ void getSingleConversion(TYPE *tpp, TYPE *tpa, EXPRESSION *expa, int *n,
                 getUserConversion(F_WITHCONS, tpp, tpa, expa, n, seq, candidate, userFunc, TRUE);
             else
                 seq[(*n)++] = CV_NONE;
+        }
+        else if (isfuncptr(tppp))
+        {
+            tpp = basetype(tppp)->btp;
+            if (isfuncptr(tpa))
+                tpa = basetype(tpa)->btp;
+            if (comparetypes(tpp, tpa, TRUE))
+            {
+                seq[(*n)++] = CV_IDENTITY;
+            }
+            else if (isint(tpa) && expa && (isconstzero(tpa, expa) || expa->type == en_nullptr))
+            {
+                seq[(*n)++] = CV_POINTERCONVERSION;
+            }
+            else
+            {
+                seq[(*n)++] = CV_NONE;
+            }
         }
         else
         {
@@ -3049,7 +3090,23 @@ void getSingleConversion(TYPE *tpp, TYPE *tpa, EXPRESSION *expa, int *n,
                 seq[(*n)++] = CV_NONE;            
             }
         }
-        else if (ispointer(tpa) || isfunction(tpa))
+        else if (isfunction(tpa))
+        {
+            if (isfunction(tpp) && comparetypes(tpp, tpa, TRUE))
+            {
+                seq[(*n)++] = CV_IDENTITY;
+            }
+            else if (basetype(tpp)->type == bt_bool)
+            {
+                seq[(*n)++] = CV_BOOLCONVERSION;
+            }
+            else
+            {
+                seq[(*n)++] = CV_NONE;
+            }
+
+        }
+        else if (ispointer(tpa))
         {
             if (basetype(tpp)->type == bt_bool)
             {
@@ -3199,6 +3256,7 @@ static void getInitListConversion(TYPE *tp, INITLIST *list, TYPE *tpp, int *n, e
                 exp.type = en_c_i;
                 thistp.type = bt_pointer;
                 thistp.btp = tp;
+                thistp.rootType = &thistp;
                 thistp.size = getSize(bt_pointer);
                 funcparams.thistp = &thistp;
                 funcparams.thisptr = &exp;
@@ -3293,6 +3351,7 @@ static BOOLEAN getFuncConversions(SYMBOL *sp, FUNCTIONCALL *f, TYPE *atp,
         tpx.type = bt_pointer;
         tpx.size = getSize(bt_pointer);
         tpx.btp = f->arguments->tp;
+        tpx.rootType = &tpx;
         m = 0;
         getSingleConversion(tpp, &tpx, f->thisptr, &m, seq, sp, userFunc ? &userFunc[n] : NULL, TRUE);
         m1 = m;
@@ -3344,6 +3403,7 @@ static BOOLEAN getFuncConversions(SYMBOL *sp, FUNCTIONCALL *f, TYPE *atp,
                         tpx.type = bt_pointer;
                         tpx.size = getSize(bt_pointer);
                         tpx.btp = f->arguments->tp;
+                        tpx.rootType = &tpx;
                     }
                     else if (theCurrentFunc 
                              && (f->thisptr && f->thisptr->type == en_l_p && f->thisptr->left->type == en_auto && f->thisptr->left->v.sp->thisPtr)
@@ -3355,6 +3415,7 @@ static BOOLEAN getFuncConversions(SYMBOL *sp, FUNCTIONCALL *f, TYPE *atp,
                         tpx.type = bt_pointer;
                         tpx.size = getSize(bt_pointer);
                         tpx.btp = basetype(f->thistp)->btp;
+                        tpx.rootType = &tpx;
                         qualifyForFunc(theCurrentFunc, &tpx.btp, FALSE);
                     }
                     else if (sp->isDestructor)
@@ -3363,6 +3424,7 @@ static BOOLEAN getFuncConversions(SYMBOL *sp, FUNCTIONCALL *f, TYPE *atp,
                         tpx.type = bt_pointer;
                         tpx.size = getSize(bt_pointer);
                         tpx.btp = basetype(basetype(f->thistp)->btp);
+                        tpx.rootType = &tpx;
                     }
                     if (islrqual(sp->tp) || isrrqual(sp->tp))
                     {
@@ -3987,9 +4049,10 @@ SYMBOL *GetOverloadedFunction(TYPE **tp, EXPRESSION **exp, SYMBOL *sp,
                 {
                     if (*tp && isstructured(*tp))
                     {
-                        char buf[1024], *p;
+                        char buf[4096], *p;
                         int n;
                         INITLIST *a;
+                        memset(buf, 0, sizeof(buf));
                         unmangle(buf, basetype(*tp)->sp->decoratedName);
                         n = strlen(buf);
                         p = strrchr(buf, ':');
@@ -4034,13 +4097,14 @@ SYMBOL *GetOverloadedFunction(TYPE **tp, EXPRESSION **exp, SYMBOL *sp,
                         sym->tp->type = bt_func;
                         sym->tp->size = getSize(bt_pointer);
                         sym->tp->btp = &stdint;
+                        sym->tp->rootType = sym->tp;
                         sym->tp->syms = CreateHashTable(1);
                         sym->tp->sp = sym;
                         while (a)
                         {
                             SYMBOL *sym1 = Alloc(sizeof(SYMBOL));
                             char nn[10];
-                            sprintf(nn, "%d", v++);
+                            my_sprintf(nn, "%d", v++);
                             sym1->name = litlate(nn);
                             sym1->tp = a->tp;
                             insert(sym1, sym->tp->syms);
@@ -4158,6 +4222,7 @@ SYMBOL *MatchOverloadedFunction(TYPE *tp, TYPE **mtp, SYMBOL *sp, EXPRESSION **e
         fpargs.thistp->type = bt_pointer;
         fpargs.thistp->size = getSize(bt_pointer);
         fpargs.thistp->btp = tp->sp->tp;
+        fpargs.thistp->rootType = fpargs.thistp;
         fpargs.thisptr = intNode(en_c_i, 0);
     }
     while (hrp)
@@ -4175,4 +4240,4 @@ SYMBOL *MatchOverloadedFunction(TYPE *tp, TYPE **mtp, SYMBOL *sp, EXPRESSION **e
     fpargs.ascall = TRUE;
     return GetOverloadedFunction(mtp, exp, sp, &fpargs, NULL, TRUE, FALSE, TRUE, flags); 
 }
-                                
+                         

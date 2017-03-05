@@ -1,7 +1,7 @@
 /*
     Software License Agreement (BSD License)
     
-    Copyright (c) 1997-2011, David Lindauer, (LADSoft).
+    Copyright (c) 1997-2016, David Lindauer, (LADSoft).
     All rights reserved.
     
     Redistribution and use of this software in source and binary forms, 
@@ -369,6 +369,8 @@ static void dumpDynamicInitializers(void)
         tp->type = bt_ifunc;
         tp->btp = Alloc(sizeof(TYPE));
         tp->btp->type = bt_void;
+        tp->rootType = tp;
+        tp->btp->rootType = tp->btp;
         tp->syms = CreateHashTable(1);
         funcsp = makeUniqueID(chosenAssembler->msil ? sc_global : sc_static, tp, NULL,"__DYNAMIC_STARTUP__");
         funcsp->inlineFunc.stmt = stmtNode(NULL, NULL, st_block);
@@ -402,6 +404,8 @@ static void dumpTLSInitializers(void)
         tp->type = bt_ifunc;
         tp->btp = Alloc(sizeof(TYPE));
         tp->btp->type = bt_void;
+        tp->rootType = tp;
+        tp->btp->rootType = tp->btp;
         tp->syms = CreateHashTable(1);
         funcsp = makeUniqueID(chosenAssembler->msil ? sc_global : sc_static, tp, NULL,"__TLS_DYNAMIC_STARTUP__");
         funcsp->inlineFunc.stmt = stmtNode(NULL, NULL, st_block);
@@ -453,6 +457,8 @@ static void dumpDynamicDestructors(void)
         tp->type = bt_ifunc;
         tp->btp = Alloc(sizeof(TYPE));
         tp->btp->type = bt_void;
+        tp->rootType = tp;
+        tp->btp->rootType = tp->btp;
         tp->syms = CreateHashTable(1);
         funcsp = makeUniqueID(chosenAssembler->msil ? sc_global : sc_static, tp, NULL,"__DYNAMIC_RUNDOWN__");
         funcsp->inlineFunc.stmt = stmtNode(NULL, NULL, st_block);
@@ -486,6 +492,8 @@ static void dumpTLSDestructors(void)
         tp->type = bt_ifunc;
         tp->btp = Alloc(sizeof(TYPE));
         tp->btp->type = bt_void;
+        tp->rootType = tp;
+        tp->btp->rootType = tp->btp;
         tp->syms = CreateHashTable(1);
         funcsp = makeUniqueID(chosenAssembler->msil ? sc_global : sc_static, tp, NULL,"__TLS_DYNAMIC_RUNDOWN__");
         funcsp->inlineFunc.stmt = stmtNode(NULL, NULL, st_block);
@@ -1406,18 +1414,42 @@ static LEXEME *initialize_pointer_type(LEXEME *lex, SYMBOL *funcsp, int offset, 
                 error(ERR_ILL_STRUCTURE_ASSIGNMENT);
             else if (!ispointer(tp) && !isfunction(tp) && !isint(tp) && tp->type != bt_aggregate)
                 error(ERR_INVALID_POINTER_CONVERSION);
-            else if (isint(tp) && !isconstzero(tp, exp))
-                error(ERR_NONPORTABLE_POINTER_CONVERSION);
-            else if ((ispointer(tp) || isfunction(tp) || tp->type == bt_aggregate)&& !comparetypes(itype, tp, TRUE))
-                if (cparams.prm_cplusplus)
+            else if (isfunction(tp) || tp->type == bt_aggregate)
+            {
+                if (!isfuncptr(itype) || !comparetypes(basetype(itype)->btp, tp, TRUE))
+                    if (cparams.prm_cplusplus)
+                    {
+                        if (!isvoidptr(itype) && !tp->nullptrType)
+                            if (tp->type == bt_aggregate)
+                                errortype(ERR_CANNOT_CONVERT_TYPE, tp, itype);
+                    }
+                    else if (!isvoidptr(tp) && !isvoidptr(itype))
+                            error(ERR_SUSPICIOUS_POINTER_CONVERSION);
+            }
+            else if (!comparetypes(itype, tp, TRUE))
+            {
+                if (ispointer(tp))
                 {
-                    if (!isvoidptr(itype) && !tp->nullptrType)
-                        if (!ispointer(itype) || tp->type == bt_aggregate || !isstructured(basetype(tp)->btp) || !isstructured(basetype(itype)->btp) || classRefCount(basetype(basetype(itype)->btp)->sp, basetype(basetype(tp)->btp)->sp) != 1)
-                            errortype(ERR_CANNOT_CONVERT_TYPE, tp, itype);
+                    if (cparams.prm_cplusplus)
+                    {
+                        if (!isvoidptr(itype) && !tp->nullptrType)
+                            if (!ispointer(itype) || tp->type == bt_aggregate || !isstructured(basetype(tp)->btp) || !isstructured(basetype(itype)->btp) || classRefCount(basetype(basetype(itype)->btp)->sp, basetype(basetype(tp)->btp)->sp) != 1)
+                                errortype(ERR_CANNOT_CONVERT_TYPE, tp, itype);
+                    }
+                    else if (!isvoidptr(tp) && !isvoidptr(itype))
+                        if (!matchingCharTypes(tp, itype))
+                            error(ERR_SUSPICIOUS_POINTER_CONVERSION);
                 }
-                else if (!isvoidptr(tp) && !isvoidptr(itype))
-                    if (!matchingCharTypes(tp, itype))
-                       error(ERR_SUSPICIOUS_POINTER_CONVERSION);
+                else if (isint(tp) && isintconst(exp))
+                {
+                    if (!isconstzero(tp, exp))
+                        error(ERR_NONPORTABLE_POINTER_CONVERSION);
+                }
+                else if (cparams.prm_cplusplus)
+                {
+                    errortype(ERR_CANNOT_CONVERT_TYPE, tp, itype);
+                }
+            }
             /* might want other types of conversion checks */
             if (!comparetypes(itype, tp, TRUE) && !isint(tp))
                 cast(tp, &exp);
@@ -1647,7 +1679,7 @@ static EXPRESSION *ConvertInitToRef(EXPRESSION *exp, TYPE *tp, TYPE*boundTP, enu
     else
     {
         EXPRESSION *exp1 = exp;
-        if (!templateNestingCount && (referenceTypeError(tp, exp) != exp->type || (tp->type == bt_rref && lvalue(exp))) && (!isstructured(basetype(tp)->btp) || exp->type != en_lvalue))
+        if (!templateNestingCount && (referenceTypeError(tp, exp) != exp->type || (tp->type == bt_rref && lvalue(exp))) && (!isstructured(basetype(tp)->btp) || exp->type != en_lvalue) && (!ispointer(basetype(tp)->btp) || exp->type != en_l_p))
         {
             if (!isarithmeticconst(exp) && exp->type != en_thisref && exp->type != en_func && basetype(basetype(tp)->btp)->type != bt_memberptr)
                 errortype(ERR_REF_INIT_TYPE_CANNOT_BE_BOUND, tp, boundTP);
@@ -2372,6 +2404,9 @@ static LEXEME *initialize_aggregate_type(LEXEME *lex, SYMBOL *funcsp, SYMBOL *ba
     BOOLEAN needend = FALSE;
     BOOLEAN assn = FALSE;
     BOOLEAN implicit = FALSE;
+    EXPRESSION *baseexp = NULL;
+    if (cparams.prm_cplusplus && isstructured(itype))
+        baseexp = exprNode(en_add, getThisNode(base), intNode(en_c_i, offset));
     allocate_desc(itype, offset, &desc, &cache);
     desc->stopgap = TRUE;
 
@@ -2387,14 +2422,14 @@ static LEXEME *initialize_aggregate_type(LEXEME *lex, SYMBOL *funcsp, SYMBOL *ba
         {
             // initialization via constructor
             FUNCTIONCALL *funcparams = Alloc(sizeof(FUNCTIONCALL));
-            EXPRESSION *baseexp,*exp;
+            EXPRESSION *exp;
             TYPE *ctype = itype;
             INITIALIZER *it = NULL;
             BOOLEAN maybeConversion = TRUE;
             BOOLEAN isconversion;
             BOOLEAN isList = MATCHKW(lex, begin);
             BOOLEAN constructed = FALSE;
-            exp = baseexp= exprNode(en_add, getThisNode(base), intNode(en_c_i, offset));
+            exp = baseexp;
             if (assn || arrayMember)
             {
                 // assignments or array members come here
@@ -2413,6 +2448,7 @@ static LEXEME *initialize_aggregate_type(LEXEME *lex, SYMBOL *funcsp, SYMBOL *ba
                     }
                     else
                     {
+                        EXPRESSION *exp3 = exp1;
                         constructed = TRUE;
                         if (exp1->left->v.func->thisptr || !exp1->left->v.func->returnEXP)
                         {
@@ -2443,7 +2479,7 @@ static LEXEME *initialize_aggregate_type(LEXEME *lex, SYMBOL *funcsp, SYMBOL *ba
                             }
                             exp1->left->v.func->returnEXP = exp;
                         }
-                        exp = exp1;
+                        exp = exp3;
                         itype = tp1;
                     }
                 }
@@ -2477,7 +2513,9 @@ static LEXEME *initialize_aggregate_type(LEXEME *lex, SYMBOL *funcsp, SYMBOL *ba
                 // default constructor without param list
             }
             if (!constructed)
-              callConstructor(&ctype, &exp, funcparams, FALSE, NULL, TRUE, maybeConversion, FALSE, FALSE, isList ? _F_INITLIST : 0); 
+            {
+                callConstructor(&ctype, &exp, funcparams, FALSE, NULL, TRUE, maybeConversion, FALSE, FALSE, isList ? _F_INITLIST : 0);
+            }
             initInsert(&it, itype, exp, offset, TRUE);
             if (sc != sc_auto && sc != sc_localstatic && sc != sc_parameter && sc != sc_member && sc != sc_mutable && !arrayMember)
             {
@@ -2510,16 +2548,44 @@ static LEXEME *initialize_aggregate_type(LEXEME *lex, SYMBOL *funcsp, SYMBOL *ba
         {
             TYPE *tp1 = NULL;
             EXPRESSION *exp1 = NULL;
-            lex = expression_no_comma(lex, funcsp, NULL, &tp1, &exp1, NULL, 0);
-            if (!tp1)
-                error(ERR_EXPRESSION_SYNTAX);
-            else if (!comparetypes(itype, tp1, TRUE))
-                error(ERR_INCOMPATIBLE_TYPE_CONVERSION);
-                
-            if (exp1)
+            if (cparams.prm_cplusplus && isstructured(itype) && MATCHKW(lex, openpa))
             {
+                // conversion constructor params
+                FUNCTIONCALL *funcparams = (FUNCTIONCALL *)Alloc(sizeof(FUNCTIONCALL));
                 INITIALIZER *it = NULL;
-                initInsert(&it, itype, exp1, offset, FALSE);
+                lex = getArgs(lex, funcsp, funcparams, closepa, TRUE, 0);
+                if (funcparams->arguments && funcparams->arguments->next)
+                    error(ERR_EXPRESSION_SYNTAX);
+                else if (funcparams->arguments && !comparetypes(itype, funcparams->arguments->tp, TRUE))
+                    error(ERR_INCOMPATIBLE_TYPE_CONVERSION);
+                else
+                {
+                    TYPE *ttp = Alloc(sizeof(TYPE)), **ttp1 = &ttp;
+                    if (isconst(itype))
+                    {
+                        (*ttp1)->type = bt_const;
+                        (*ttp1)->size = itype->size;
+                        ttp1 = &(*ttp1)->btp;
+                    }
+                    if (isvolatile(itype))
+                    {
+                        (*ttp1)->type = bt_volatile;
+                        (*ttp1)->size = itype->size;
+                        ttp1 = &(*ttp1)->btp;
+                    }
+                    (*ttp1)->btp = itype;
+                    UpdateRootTypes(ttp);
+                    tp1 = itype;
+                    if (funcparams->arguments && !isref(funcparams->arguments->tp))
+                    {
+                        funcparams->arguments->tp->lref = TRUE;
+                        funcparams->arguments->tp->rref = FALSE;
+                    }
+                    funcparams->thistp = ttp;
+                    exp1 = baseexp;
+                    callConstructor(&tp1, &exp1, funcparams, FALSE, NULL, TRUE, FALSE, FALSE, FALSE, 0);
+                    initInsert(&it, itype, exp1, offset, TRUE);
+                }
                 if (sc != sc_auto && sc != sc_localstatic && sc != sc_parameter && sc != sc_member && sc != sc_mutable && !arrayMember)
                 {
                     insertDynamicInitializer(base, it);
@@ -2527,6 +2593,28 @@ static LEXEME *initialize_aggregate_type(LEXEME *lex, SYMBOL *funcsp, SYMBOL *ba
                 else
                 {
                     *init = it;
+                }
+
+            }
+            else
+            {
+                lex = expression_no_comma(lex, funcsp, NULL, &tp1, &exp1, NULL, 0);
+                if (!tp1)
+                    error(ERR_EXPRESSION_SYNTAX);
+                else if (!comparetypes(itype, tp1, TRUE))
+                    error(ERR_INCOMPATIBLE_TYPE_CONVERSION);
+                if (exp1)
+                {
+                    INITIALIZER *it = NULL;
+                    initInsert(&it, itype, exp1, offset, FALSE);
+                    if (sc != sc_auto && sc != sc_localstatic && sc != sc_parameter && sc != sc_member && sc != sc_mutable && !arrayMember)
+                    {
+                        insertDynamicInitializer(base, it);
+                    }
+                    else
+                    {
+                        *init = it;
+                    }
                 }
             }
             return lex;
@@ -2682,6 +2770,7 @@ static LEXEME *initialize_aggregate_type(LEXEME *lex, SYMBOL *funcsp, SYMBOL *ba
                         tn->type = bt_pointer;
                         tn->size = n * s;
                         tn->btp = btp;
+                        tn->rootType = tn;
                         tn->esize = sz;
                     }
                     callConstructor(&ctype, &exp, NULL, TRUE, sz, TRUE, FALSE, FALSE, FALSE, FALSE);
@@ -2722,6 +2811,7 @@ static LEXEME *initialize_aggregate_type(LEXEME *lex, SYMBOL *funcsp, SYMBOL *ba
                     tn->type = bt_pointer;
                     tn->size = n * s;
                     tn->btp = btp;
+                    tn->rootType = tn;
                     tn->esize = sz;
                 }
                 if (sc != sc_auto && sc != sc_parameter && sc != sc_member && sc != sc_mutable)
@@ -2786,12 +2876,14 @@ static LEXEME *initialize_auto(LEXEME *lex, SYMBOL *funcsp, int offset,
                 itp->type = bt_pointer;
                 itp->size = getSize(bt_pointer);
                 itp->btp = basetype(tp)->btp;
+                itp->rootType = itp;
                 if (isconst(itp))
                 {
                     TYPE *itp1 = Alloc(sizeof(TYPE));
                     itp1->type = bt_const;
                     itp1->size = itp->size;
                     itp1->btp = itp;
+                    itp1->rootType = itp->rootType;
                     itp = itp1;
                 }
                 if (isvolatile(itp))
@@ -2800,6 +2892,7 @@ static LEXEME *initialize_auto(LEXEME *lex, SYMBOL *funcsp, int offset,
                     itp1->type = bt_volatile;
                     itp1->size = itp->size;
                     itp1->btp = itp;
+                    itp1->rootType = itp->rootType;
                     itp = itp1;
                 }
                 tp = itp;
@@ -2811,6 +2904,7 @@ static LEXEME *initialize_auto(LEXEME *lex, SYMBOL *funcsp, int offset,
                 itp->type = bt_const;
                 itp->size = tp->size;
                 itp->btp = tp;
+                itp->rootType = tp->rootType;
                 tp = itp;
             }
             if (isvolatile(sp->tp) && !isvolatile(tp))
@@ -2819,6 +2913,7 @@ static LEXEME *initialize_auto(LEXEME *lex, SYMBOL *funcsp, int offset,
                 itp->type = bt_volatile;
                 itp->size = tp->size;
                 itp->btp = tp;
+                itp->rootType = tp->rootType;
                 tp = itp;
             }
             sp->tp = tp; // sets type for variable
@@ -2890,7 +2985,7 @@ LEXEME *initType(LEXEME *lex, SYMBOL *funcsp, int offset, enum e_sc sc,
         {
             TEMPLATEPARAMLIST *args = basetype(ts->tp)->templateParam->p->byDeferred.args;
             TEMPLATEPARAMLIST *val = NULL, **lst = &val;
-            sp = tp->templateParam->p->sym;
+            sp = tp->templateParam->argsym;
             sp = TemplateClassInstantiateInternal(sp, args, TRUE);
         }
         if (sp)
@@ -3108,7 +3203,7 @@ BOOLEAN IsConstantExpression(EXPRESSION *node, BOOLEAN allowParams)
                 case en_labcon:
                 case en_absolute:
                 case en_threadlocal:
-                    return node->left->v.sp->constexpression;
+                    return node->left->v.sp->constexpression || node->left->v.sp->init && IsConstantExpression(node->left->v.sp->init->exp, allowParams);
             }
             break;
         case en_uminus:
@@ -3356,6 +3451,7 @@ LEXEME *initialize(LEXEME *lex, SYMBOL *funcsp, SYMBOL *sp, enum e_sc storage_cl
                 {
                     *tp3 = Alloc(sizeof(TYPE));
                     **tp3 = *tp;
+                    UpdateRootTypes(*tp3);
                     tp3 = &(*tp3)->btp;
                     tp = tp->btp;
                 }
@@ -3527,13 +3623,16 @@ LEXEME *initialize(LEXEME *lex, SYMBOL *funcsp, SYMBOL *sp, enum e_sc storage_cl
                     }
                 }
             }
-            else if (sp->init->exp && isintconst(sp->init->exp) && (isint(sp->tp) || basetype(sp->tp)->type == bt_enum))
+            else
+            {
+                if (sp->init->exp && isintconst(sp->init->exp) && (isint(sp->tp) || basetype(sp->tp)->type == bt_enum))
                 {
                     if (sp->storage_class != sc_static && !cparams.prm_cplusplus && !funcsp)
                         insertInitSym(sp);
-                    sp->value.i = sp->init->exp->v.i ;
+                    sp->value.i = sp->init->exp->v.i;
                     sp->storage_class = sc_constant;
                 }
+            }
         }
         else if (sp->init && sp->init->exp && (isint(sp->tp) || basetype(sp->tp)->type == bt_enum))
             {

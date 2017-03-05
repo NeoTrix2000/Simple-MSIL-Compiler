@@ -1,7 +1,7 @@
 /*
     Software License Agreement (BSD License)
     
-    Copyright (c) 1997-2011, David Lindauer, (LADSoft).
+    Copyright (c) 1997-2016, David Lindauer, (LADSoft).
     All rights reserved.
     
     Redistribution and use of this software in source and binary forms, 
@@ -48,7 +48,7 @@
 #endif
 
 #define KW_HASH
-#define MAX_LOOKBACK 256
+#define MAX_LOOKBACK 1024
 
 extern COMPILER_PARAMS cparams ;
 extern INCLUDES *includes;
@@ -219,6 +219,8 @@ KEYWORD keywords[] = {
     { "__stdcall", 9,  kw__stdcall, KW_NONANSI | KW_ALL, TT_LINKAGE},
     { "__typeid", 8,  kw___typeid, KW_CPLUSPLUS, 0},
     { "__unmanaged", 11,  kw__unmanaged, KW_NONANSI | KW_ALL, TT_LINKAGE},
+    { "__uuid", 6,  kw__uuid, 0, TT_LINKAGE },
+    { "__uuidof", 8,  kw__uuidof, 0, TT_VAR },
     { "__va_list__", 11, kw___va_list__, KW_NONANSI | KW_ALL, TT_TYPEQUAL | TT_POINTERQUAL },
     { "__va_typeof__", 13, kw___va_typeof__, KW_NONANSI | KW_ALL, TT_VAR },
     { "_absolute", 9,  kw__absolute, KW_NONANSI | KW_ALL, TT_STORAGE_CLASS},
@@ -566,10 +568,12 @@ int getChar(unsigned char **source, enum e_lexType *tp)
 }
 SLCHAR *getString(unsigned char **source, enum e_lexType *tp)
 {
+    // the static declaration speeds it up by about 5% on windows platforms.
+    static LCHAR data[32768];
+    LCHAR *dest = data;
     BOOLEAN raw = FALSE;
     BOOLEAN found = FALSE;
     unsigned char *p = (unsigned char *)*source;
-    LCHAR data[32768], *dest = data;
     int len = sizeof(data)/sizeof(data[0]);
     int count = 0;
     BOOLEAN errored = FALSE;
@@ -797,9 +801,7 @@ SLCHAR *getString(unsigned char **source, enum e_lexType *tp)
         rv = Alloc(sizeof(SLCHAR));
         rv->str = (LCHAR *)Alloc(count * sizeof(LCHAR));
         for (i=0; i < count; i++)
-        {
             rv->str[i] = data[i];
-        }
         rv->count = count;
         DecGlobalFlag();
         return rv;
@@ -1249,7 +1251,7 @@ LEXEME *getsym(void)
     BOOLEAN contin ;
     FPF rval;
     LLONG_TYPE ival;
-    static unsigned char buf[2048];
+    static unsigned char buf[16384];
     static int pos = 0;
     int cval;
     SLCHAR *strptr;
