@@ -1,7 +1,7 @@
 /*
     Software License Agreement (BSD License)
     
-    Copyright (c) 1997-2011, David Lindauer, (LADSoft).
+    Copyright (c) 1997-2016, David Lindauer, (LADSoft).
     All rights reserved.
     
     Redistribution and use of this software in source and binary forms, 
@@ -196,43 +196,6 @@ BOOLEAN expectstring(char *buf, unsigned char **in, BOOLEAN angle)
     return FALSE;
         
 }
-#if defined(BORLAND) && !defined(__ORANGEC__)
-LLONG_TYPE strtoll(unsigned char *s, char **e, int radix)
-{
-    LLONG_TYPE rv = 0;
-    *e = s;
-    if (!s[0])
-        return 0;
-    if (!radix)
-        if (s[0] == '0')
-        {
-            radix = 8, s++;
-            if (s[0] == 'x' || s[0] == 'X')
-                radix = 16, s++;
-        }
-        else
-            radix = 10;
-    while (isalnum(*s))
-    {
-        int n = *s++;
-        if (n >= 'a')
-            n ^=('a' - 'A');
-        n -= '0';
-        if (n < 0)
-            break;
-        if (n >= 10)
-        {
-            n -= 7;
-        }
-        if (n >= radix)
-            break;
-        rv *= radix;
-        rv += n;
-    }
-    *e = s;
-    return rv;
-}
-#endif
 PPINT expectnum(BOOLEAN *uns)
 {
 #ifdef USE_LONGLONG

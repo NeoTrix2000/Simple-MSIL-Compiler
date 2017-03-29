@@ -191,6 +191,10 @@ BOOLEAN comparetypes(TYPE *typ1, TYPE *typ2, int exact)
             return comparetypes(typ1->btp, typ2->btp, exact);
         }
     }
+    if (typ1->type == typ2->type && typ1->type == bt___string)
+        return TRUE;
+    if (typ1->type == bt___object) // object matches anything
+        return TRUE;
     if (typ1->type == typ2->type && (isstructured(typ1) || (exact && typ1->type == bt_enum)))
         return typ1->sp == typ2->sp;
     if (typ1->type == typ2->type || (!exact && isarithmetic(typ2) && isarithmetic(typ1)))
@@ -260,10 +264,14 @@ static char *putpointer(char *p, TYPE *tp)
         my_sprintf(p,"far ");
     p = p +strlen(p);
     if (tp->array)
-        if (tp->btp->size)
-            my_sprintf(p,"[%ld]",tp->size/tp->btp->size);
+        if (tp->btp->size && (! tp->esize || tp->esize->type == en_c_i))
+        {
+            my_sprintf(p,"[%d]",tp->size/tp->btp->size);
+        }
         else
+        {
             my_sprintf(p,"[]");
+        }
     else if (tp->vla)
         my_sprintf(p, "[*]");
     else
@@ -482,6 +490,12 @@ TYPE *typenum(char *buf, TYPE *tp)
             break;
         case bt_void:
             strcpy(buf, tn_void);
+            break;
+        case bt___string:
+            strcpy(buf, "__string");
+            break;
+        case bt___object:
+            strcpy(buf, "__object");
             break;
         case bt_pointer:
             if (tp->nullptrType)

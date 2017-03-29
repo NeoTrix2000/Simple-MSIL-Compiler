@@ -45,7 +45,11 @@
 #include "DotNetpeLib.h"
 
 #include <vector>
+#include <string>
 using namespace DotNetPELib;
+
+extern void Import();
+BoxedType *boxedType(int isz);
 
 extern "C" {
 
@@ -57,12 +61,16 @@ extern "C" {
     extern char namespaceAndClass[512];
     extern LIST *temporarySymbols;
     extern char prm_snkKeyFile[260];
+    extern int assemblyVersion[4];
 
     MethodSignature *argsCtor;
     MethodSignature *argsNextArg;
     MethodSignature *argsUnmanaged;
     MethodSignature *ptrBox;
     MethodSignature *ptrUnbox;
+    MethodSignature *concatStr;
+    MethodSignature *concatObj;
+    MethodSignature *toStr;
     Type *systemObject;
     Method *currentMethod;
     PELib *peLib;
@@ -79,6 +87,8 @@ extern "C" {
         "void __msil_rtl free(void *); "
         "void *__va_start__(); "
         "void *__va_arg__(void *, ...); ";
+    std::string _dll_name(char *name);
+
 }
 static SYMBOL retblocksym;
 
@@ -145,6 +155,65 @@ extern "C"
 }
 static std::map<std::string, Type *> typeList;
 static std::map<SYMBOL *, Value *, byField> fieldList;
+static std::map<std::string, MethodSignature *> arrayMethods;
+
+MethodSignature *LookupArrayMethod(Type *tp, std::string name)
+{
+    char buf[256];
+    sprintf(buf, "$$$%d;%d;%s", tp->ArrayLevel(), tp->GetBasicType(), name.c_str());
+    auto it = arrayMethods.find(buf);
+    if (it != arrayMethods.end())
+       return it->second;
+    Type *tp1 = peLib->AllocateType(Type::i32, 0);
+    int n = tp->ArrayLevel();
+    MethodSignature *sig = peLib->AllocateMethodSignature(name, MethodSignature::Managed | MethodSignature::InstanceFlag, mainContainer);
+    sig->ArrayObject(tp);
+    for (int i = 0; i < n; i++)
+    {
+        char buf[256];
+        sprintf(buf, "p%d", i);
+        sig->AddParam(peLib->AllocateParam(buf, tp1));
+    }
+    if (name == ".ctor")
+    {
+        sig->ReturnType(peLib->AllocateType(Type::Void, 0));
+    }
+    else if (name == "Get")
+    {
+        Type *tp2 = peLib->AllocateType(tp->GetBasicType(), 0); 
+        sig->ReturnType(tp2);
+    }
+    else if (name == "Set")
+    {
+        Type *tp2 = peLib->AllocateType(tp->GetBasicType(), 0); 
+        sig->ReturnType(peLib->AllocateType(Type::Void, 0));
+        char buf[256];
+        sprintf(buf, "p$$");
+        sig->AddParam(peLib->AllocateParam(buf, tp2));
+    }
+    arrayMethods[name] = sig;
+    return sig;
+}
+static MethodSignature * FindMethodSignature(char *name)
+{
+    void *result;
+    if (peLib->Find(name, &result) == PELib::s_method)
+    {
+        return static_cast<Method *>(result)->Signature();
+    }
+    fatal("could not find built in method %s", name);
+    return NULL;
+}
+static Type *FindType(char *name)
+{
+    void *result;
+    if (peLib->Find(name, &result) == PELib::s_class)
+    {
+        return peLib->AllocateType(static_cast<Class *>(result));
+    }
+    fatal("could not find built in type %s", name);
+    return NULL;
+}
 
 // weed out unions, structures with nested structures or bit fields
 BOOLEAN qualifiedStruct(SYMBOL *sp)
@@ -208,12 +277,25 @@ MethodSignature *GetMethodSignature(TYPE *tp, bool pinvoke)
     MethodSignature *rv;
     if (sp->storage_class != sc_localstatic && sp->storage_class != sc_constant && sp->storage_class != sc_static)
     {
-        rv = peLib->AllocateMethodSignature(sp->name, flags, pinvoke && sp->linkage != lk_msil_rtl ? NULL : mainContainer);
         if (sp->linkage2 == lk_msil_rtl)
-        {
+        {            
             char buf[1024];
-            sprintf(buf, "[lsmsilcrtl]lsmsilcrtl.rtl::%s", sp->name);
-            rv->FullName(buf);
+            void *result;
+            // in lsmsilcrtl
+            sprintf(buf, "lsmsilcrtl.rtl.%s", sp->name);
+            if (peLib->Find(buf, &result) == PELib::s_method)
+            {
+                rv = static_cast<Method *>(result)->Signature();
+		return rv;
+            }
+            else
+            {
+                fatal("missing rtl function: %s", buf);
+            }
+        }
+        else
+        {
+            rv = peLib->AllocateMethodSignature(sp->name, flags, pinvoke && sp->linkage != lk_msil_rtl ? NULL : mainContainer);
         }
     }
     else
@@ -243,7 +325,9 @@ MethodSignature *GetMethodSignature(TYPE *tp, bool pinvoke)
         {
             if (!pinvoke)
             {
-                Param * p = peLib->AllocateParam("__va_list__", peLib->AllocateType(Type::objectArray, 0));
+                Type *oa = peLib->AllocateType(Type::object, 0);
+                oa->ArrayLevel(1);
+                Param * p = peLib->AllocateParam("__va_list__", oa);
                 rv->AddParam(p);
             }
             break;
@@ -373,6 +457,12 @@ Value *GetStructField(SYMBOL *sp)
 }
 Type * GetType(TYPE *tp, BOOLEAN commit, BOOLEAN funcarg, BOOLEAN pinvoke)
 {
+    BOOLEAN byref = FALSE;
+    if (isref(tp))
+    {
+        byref = TRUE;
+        tp = basetype(tp)->btp;
+    }
     if (isstructured(tp))
     {
         Type *type = NULL;
@@ -415,6 +505,7 @@ Type * GetType(TYPE *tp, BOOLEAN commit, BOOLEAN funcarg, BOOLEAN pinvoke)
                     hr = hr->next;
                 }
             }
+            type->ByRef(byref);
             return type;
         }
         else
@@ -453,6 +544,36 @@ Type * GetType(TYPE *tp, BOOLEAN commit, BOOLEAN funcarg, BOOLEAN pinvoke)
             return peLib->AllocateType((DataContainer *)NULL);
         }
     }
+    else if (isarray(tp) && basetype(tp)->msil)
+    {
+        char name[512];
+        TYPE *base = tp;
+        Type *rv;
+        int count = 0;
+        while (isarray(base))
+        {
+            count++;
+            base = basetype(base)->btp;
+        }
+        sprintf(name, "$$$marray%d;%s;%d", base->type, base->sp ? base->sp->name : "", count);
+        std::map<std::string, Type *>::iterator it = typeList.find(name);
+        if (it != typeList.end())
+            return it->second;
+        if (commit)
+        { 
+            rv = GetType(base, TRUE);
+            rv->ArrayLevel(count);
+            typeList[name] = rv;
+            if (isstructured(base))
+                GetType(base, true);
+            rv->ByRef(byref);
+            return rv;
+        }
+        else
+        {
+            return peLib->AllocateType((DataContainer *)NULL);
+        }
+    }
     else if (isarray(tp) && !funcarg)
     {
         std::string name = GetArrayName(tp);
@@ -471,6 +592,7 @@ Type * GetType(TYPE *tp, BOOLEAN commit, BOOLEAN funcarg, BOOLEAN pinvoke)
             // declare any structure we are referencing..
             if (isstructured(tp))
                 GetType(tp, true);
+            type->ByRef(byref);
             return type;
         }
         else
@@ -496,8 +618,8 @@ Type * GetType(TYPE *tp, BOOLEAN commit, BOOLEAN funcarg, BOOLEAN pinvoke)
         {
             if (tp1->type == bt_va_list)
             {
-                Type *rv = peLib->AllocateType(Type::Void, level); // pointer to class
-                rv->FullName("[lsmsilcrtl]lsmsilcrtl.args");
+                Type *rv = FindType("lsmsilcrtl.args");
+                rv->PointerLevel(level);
                 return rv;
             }
             if (tp1->type == bt_pointer)
@@ -519,18 +641,28 @@ Type * GetType(TYPE *tp, BOOLEAN commit, BOOLEAN funcarg, BOOLEAN pinvoke)
             rv = peLib->AllocateType(rv->GetClass());
         }
         rv->PointerLevel(level);
+        rv->ByRef(byref);
         return rv;
     }
     else if (basetype(tp)->type == bt_void)
     {
         return peLib->AllocateType(Type::Void, 0);
     }
+    else if (ismsil(tp))
+    {
+        if (basetype(tp)->type == bt___string)
+            return peLib->AllocateType(Type::string, 0);
+        else
+            return peLib->AllocateType(Type::object, 0);
+    }
     else
     {
         static Type::BasicType typeNames[] = { Type::i8, Type::i8, Type::i8, Type::i8, Type::u8,
                 Type::i16, Type::i16, Type::u16, Type::u16, Type::i32, Type::i32, Type::i32, Type::u32, Type::i32, Type::u32,
                 Type::i64, Type::u64, Type::r32, Type::r64, Type::r64, Type::r32, Type::r64, Type::r64 };
-        return peLib->AllocateType(typeNames[basetype(tp)->type], 0);
+        Type *rv = peLib->AllocateType(typeNames[basetype(tp)->type], 0);
+        rv->ByRef(byref);
+        return rv;
     }
 }
 void oa_enter_type(SYMBOL *sp)
@@ -891,7 +1023,9 @@ void LoadParams(SYMBOL *sp)
         Param *newParam;
         if (sym->tp->type == bt_ellipse)
         {
-            newParam = peLib->AllocateParam("__va_list__", peLib->AllocateType(Type::objectArray, 0));
+            Type *oa = peLib->AllocateType(Type::object, 0);
+            oa->ArrayLevel(1);
+            newParam = peLib->AllocateParam("__va_list__", oa);
             sym->name = "__va_list__";
         }
         else
@@ -907,6 +1041,7 @@ void LoadParams(SYMBOL *sp)
 extern "C" void compile_start(char *name)
 {
     _using_init();
+    Import();
     staticList.clear();
 }
 void LoadFuncs(void)
@@ -1217,35 +1352,45 @@ static void AddRTLThunks()
 }
 static void CreateExternalCSharpReferences()
 {
-    //        case am_argit_args:
-    //            bePrintf("\t'__varargs__'");
-    //            break;
-    argsCtor = peLib->AllocateMethodSignature(".ctor", MethodSignature::Instance, NULL);
-    argsCtor->FullName("[lsmsilcrtl]lsmsilcrtl.args::.ctor");
-    argsCtor->ReturnType(peLib->AllocateType(Type::Void, 0));
-    argsCtor->AddParam(peLib->AllocateParam("", peLib->AllocateType(Type::objectArray, 0)));
-    argsNextArg = peLib->AllocateMethodSignature("GetNextArg", MethodSignature::Instance, NULL);
-    argsNextArg->FullName("[lsmsilcrtl]lsmsilcrtl.args::GetNextArg");
-    argsNextArg->ReturnType(peLib->AllocateType(Type::object, 0));
-    argsUnmanaged = peLib->AllocateMethodSignature("GetUnmanaged", MethodSignature::Instance, NULL);
-    argsUnmanaged->FullName("[lsmsilcrtl]lsmsilcrtl.args::GetUnmanaged");
-    argsUnmanaged->ReturnType(peLib->AllocateType(Type::Void, 1));
-    ptrBox = peLib->AllocateMethodSignature("box", 0, NULL);
-    ptrBox->FullName("[lsmsilcrtl]lsmsilcrtl.pointer::'box'");
-    ptrBox->ReturnType(peLib->AllocateType(Type::object, 0));
-    ptrBox->AddParam(peLib->AllocateParam("", peLib->AllocateType(Type::Void, 1)));
-    ptrUnbox = peLib->AllocateMethodSignature("unbox", 0, NULL);
-    ptrUnbox->FullName("[lsmsilcrtl]lsmsilcrtl.pointer::'unbox'");
-    ptrUnbox->ReturnType(peLib->AllocateType(Type::Void, 1));
-    ptrUnbox->AddParam(peLib->AllocateParam("", peLib->AllocateType(Type::object, 0)));
+    argsCtor = FindMethodSignature("lsmsilcrtl.args::.ctor");
+    argsNextArg = FindMethodSignature("lsmsilcrtl.args::GetNextArg");
+    argsUnmanaged = FindMethodSignature("lsmsilcrtl.args::GetUnmanaged");
+    ptrBox = FindMethodSignature("lsmsilcrtl.pointer::box");
+    ptrUnbox = FindMethodSignature("lsmsilcrtl.pointer::unbox");
 
-    systemObject = peLib->AllocateType(Type::object, 0);
-    systemObject->FullName("[mscorlib]System.Object");
+    systemObject = FindType("System.Object");
 
+    Type stringType(Type::string, 0);
+    Type objectType(Type::object, 0);
+
+    std::vector<Type *> strArgs;
+    strArgs.push_back(&stringType);
+    strArgs.push_back(&stringType);
+    std::vector<Type *> objArgs;
+    objArgs.push_back(&objectType);
+    objArgs.push_back(&objectType);
+
+    std::vector<Type *>toStrArgs;
+    toStrArgs.push_back(&objectType);
+
+    Method *result;
+    if (peLib->Find("System.String::Concat", &result, strArgs) == PELib::s_method)
+    {
+        concatStr =  result->Signature();
+    }
+    if (peLib->Find("System.String::Concat", &result, objArgs) == PELib::s_method)
+    {
+        concatObj =  result->Signature();
+    }
+    if (peLib->Find("System.Convert::ToString", &result, toStrArgs) == PELib::s_method)
+    {
+        toStr =  result->Signature();
+    }
+    if (!concatStr || !concatObj || !toStr)
+        fatal("could not find builtin function");
 }
 extern "C" BOOLEAN oa_main_preprocess(void)
 {
-    _apply_global_using();
 
     PELib::CorFlags corFlags = PELib::bits32;
     if (namespaceAndClass[0])
@@ -1263,6 +1408,18 @@ extern "C" BOOLEAN oa_main_preprocess(void)
         *p = 0;
     }
     peLib = new PELib(q, corFlags);
+
+    if (peLib->LoadAssembly("mscorlib"))
+    {
+        fatal("could not load mscorlib.dll");
+    }
+    if (peLib->LoadAssembly("lsmsilcrtl"))
+    {
+        fatal("could not load lsmsilcrtl.dll");
+    }
+    _apply_global_using();
+
+    peLib->AddUsing("System");
     if (p)
     {
         *p = '.';
@@ -1281,16 +1438,9 @@ extern "C" BOOLEAN oa_main_preprocess(void)
     {
         mainContainer = peLib->WorkingAssembly();
     }
+    /**/
+    peLib->WorkingAssembly()->SetVersion(assemblyVersion[0], assemblyVersion[1], assemblyVersion[2], assemblyVersion[3]);
     peLib->WorkingAssembly()->SNKFile(prm_snkKeyFile);
-    BYTE mscorlibPublicKeytoken[] = { 0xb7, 0x7a, 0x5c, 0x56, 0x19, 0x34, 0xe0, 0x89 };
-    peLib->AddExternalAssembly("mscorlib", mscorlibPublicKeytoken);
-    AssemblyDef *mscorlib = peLib->FindAssembly("mscorlib");
-    mscorlib->SetVersion(4, 0, 0, 0);
-
-    BYTE lsmsilcrtlPublickeytoken[] = { 0xbc, 0x9b,0x11,0x12,0x35,0x64,0x2d,0x7d };
-    peLib->AddExternalAssembly("lsmsilcrtl", lsmsilcrtlPublickeytoken);
-    AssemblyDef *lsmsilcrtl = peLib->FindAssembly("lsmsilcrtl");
-    lsmsilcrtl->SetVersion(1, 0, 0, 0);
 
     CreateExternalCSharpReferences();
     retblocksym.name = "__retblock";

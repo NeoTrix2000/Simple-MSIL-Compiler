@@ -5,7 +5,7 @@
     All rights reserved.
     
     Redistribution and use of this software in source and binary forms, 
-    with or without modification, are permitted provideinitiad that the following 
+    with or without modification, are permitted provided that the following 
     conditions are met:
     
     * Redistributions of source code must retain the above
@@ -54,6 +54,7 @@ extern TYPE stdchar32tptr;
 extern TYPE stdint;
 extern TYPE stdvoid;
 extern TYPE stdpointer;
+extern TYPE std__string;
 extern int startlab, retlab;
 extern BOOLEAN declareAndInitialize;
 extern int instantiatingTemplate;
@@ -330,11 +331,12 @@ static void dumpDynamicInitializers(void)
             if (++i == 10)
             {
                 exp1 = *next;
-                *next = 0; 
-                next = &exp1;
+                *next = intNode(en_c_i, 0); // fill in the final right with a value 
                 (*stmtp) = stmtNode(NULL, NULL, st_expr);
                 (*stmtp)->select = exp;
                 stmtp = &(*stmtp)->next;
+
+                next = &exp1;
                 exp = exp1;
                 i = 0;
             }
@@ -921,7 +923,8 @@ BOOLEAN IsConstWithArr(TYPE *tp)
 static void dumpInitGroup(SYMBOL *sp, TYPE *tp)
 {
 #ifndef PARSER_ONLY
-    if (sp->init)
+
+    if (sp->init || isarray(sp->tp) && sp->tp->msil)
     {
         if (chosenAssembler->msil)
         {
@@ -1121,7 +1124,7 @@ static LEXEME *init_expression(LEXEME *lex, SYMBOL *funcsp, TYPE *atp, TYPE **tp
         lex = expression(lex, funcsp, atp, tp, expr, 0);
     else
         lex = expression_no_comma(lex, funcsp, atp, tp, expr, NULL, 0);
-    if (*tp && isvoid(*tp))
+    if (*tp && (isvoid(*tp) || ismsil(*tp)))
         error(ERR_NOT_AN_ALLOWED_TYPE);
     optimize_for_constants(expr);
 	if (*tp)
@@ -1410,7 +1413,9 @@ static LEXEME *initialize_pointer_type(LEXEME *lex, SYMBOL *funcsp, int offset, 
             {
                 errortype(ERR_CANNOT_CONVERT_TYPE, tp, itype);
             }
-            if (isstructured(tp))
+            if (isarray(tp) && (tp)->msil)
+                error(ERR_MANAGED_OBJECT_NO_ADDRESS);
+            else if (isstructured(tp))
                 error(ERR_ILL_STRUCTURE_ASSIGNMENT);
             else if (!ispointer(tp) && !isfunction(tp) && !isint(tp) && tp->type != bt_aggregate)
                 error(ERR_INVALID_POINTER_CONVERSION);
@@ -1634,6 +1639,12 @@ enum e_node referenceTypeError(TYPE *tp, EXPRESSION *exp)
             break;
         case bt_long_double_imaginary:
             en = en_l_ldi;
+            break;
+        case bt___string:
+            en = en_l_string;
+            break;
+        case bt___object:
+            en = en_l_object;
             break;
         case bt_pointer:
             if (tp->array || tp->vla)
@@ -2289,18 +2300,6 @@ static LEXEME *read_strings(LEXEME *lex, INITIALIZER **next,
         initInsert(next, btp, exp, (*desc)->offset + (*desc)->reloffset, FALSE); /* NULL=no initializer */
         max = (*desc)->reloffset/btp->size;
     }
-    for (i=(*desc)->reloffset/btp->size; i < max; i++)
-    {
-        EXPRESSION *exp;
-        if (i == index)
-            exp  = intNode(en_c_i, 0);
-        else
-            exp = NULL;
-        initInsert(next, btp, exp, (*desc)->offset + (*desc)->reloffset, FALSE); /* NULL=no initializer */
-        (*desc)->reloffset += btp->size;
-        next = &(*next)->next;
-        index++;
-    }
     if ((*desc)->reloffset < max * btp->size)
     {
         EXPRESSION *exp = intNode(en_c_i, 0);
@@ -2331,8 +2330,45 @@ static TYPE *nexttp(AGGREGATE_DESCRIPTOR *desc)
         rv = basetype(desc->tp)->btp;
     return rv;
 }
+static LEXEME *initialize___object(LEXEME *lex, SYMBOL *funcsp, int offset,
+    TYPE *itype, INITIALIZER **init)
+{
+    EXPRESSION *expr = NULL;
+    TYPE *tp = NULL;
+    lex = expression_assign(lex, funcsp, NULL, &tp, &expr, NULL, 0);
+    if (!tp || !lex)
+    {
+        error(ERR_EXPRESSION_SYNTAX);
+    }
+    else if (isarithmetic(tp) || ispointer(tp))
+    {
+        cast(tp, &expr);
+    }
+    initInsert(init, tp, expr, offset, FALSE);
+    return lex;
+}
+static LEXEME *initialize___string(LEXEME *lex, SYMBOL *funcsp, int offset,
+    TYPE *itype, INITIALIZER **init)
+{
+    EXPRESSION *expr = NULL;
+    TYPE *tp = NULL;
+    lex = expression_assign(lex, funcsp, itype, &tp, &expr, NULL, 0);
+    if (!tp || !lex)
+    {
+        error(ERR_EXPRESSION_SYNTAX);
+    }
+    else if (tp->type != bt___string)
+    {
+        if (expr && expr->type == en_labcon && expr->string)
+            expr->type = en_c_string;
+        else
+            errortype(ERR_CANNOT_CONVERT_TYPE, tp, itype);
+    }
+    initInsert(init, itype, expr, offset, FALSE);
+    return lex;
+}
 static LEXEME *initialize_auto_struct(LEXEME *lex, SYMBOL *funcsp, int offset,
-                                      TYPE *itype, INITIALIZER **init)
+                                    TYPE *itype, INITIALIZER **init)
 {
     EXPRESSION *expr = NULL ;
     TYPE *tp = NULL;
@@ -2673,8 +2709,18 @@ static LEXEME *initialize_aggregate_type(LEXEME *lex, SYMBOL *funcsp, SYMBOL *ba
             }
             else
             {
+                SYMBOL *fieldsp;
                 lex = initType(lex, funcsp, desc->offset + desc->reloffset,
                                sc, next, dest, nexttp(desc), base, isarray(itype), flags);
+                if (desc->hr)
+                {
+                    fieldsp = ((SYMBOL *)desc->hr->p);
+                    if (ismember(fieldsp) && fieldsp->parentClass->tp->type != bt_union)   
+                    {
+                        (*next)->fieldsp = fieldsp;
+                        (*next)->fieldoffs = desc->offset;
+                    }
+                }
             }
             increment_desc(&desc, &cache);
             while (*next)
@@ -3081,6 +3127,10 @@ LEXEME *initType(LEXEME *lex, SYMBOL *funcsp, int offset, enum e_sc sc,
             return initialize_bit(lex, funcsp, offset, sc, tp, init);
         case bt_auto:
             return initialize_auto(lex, funcsp, offset, sc, tp, init, dest, sp);
+        case bt___string:
+            return initialize___string(lex, funcsp, offset, tp, init, dest, sp);
+        case bt___object:
+            return initialize___object(lex, funcsp, offset, tp, init, dest, sp);
         case bt_struct:
         case bt_union:
         case bt_class:
@@ -3114,6 +3164,10 @@ LEXEME *initType(LEXEME *lex, SYMBOL *funcsp, int offset, enum e_sc sc,
 BOOLEAN IsConstantExpression(EXPRESSION *node, BOOLEAN allowParams)
 {
     BOOLEAN rv = FALSE;
+    if (total_errors) // in some error conditions nodes can get into a loop
+        // for purposes of this function...  guard against it.   Consider everything
+        // CONST to avoid more errors..
+        return TRUE;
     if (node == 0)
         return rv;
     switch (node->type)
@@ -3148,7 +3202,8 @@ BOOLEAN IsConstantExpression(EXPRESSION *node, BOOLEAN allowParams)
         case en_c_uc:
         case en_c_wc:
         case en_c_u16:
-        case en_c_u32:        
+        case en_c_u32:
+        case en_c_string:
         case en_nullptr:
         case en_structelem:
             rv = TRUE;
@@ -3193,6 +3248,8 @@ BOOLEAN IsConstantExpression(EXPRESSION *node, BOOLEAN allowParams)
         case en_l_bit:
         case en_l_ll:
         case en_l_ull:
+        case en_l_string:
+        case en_l_object:
             if (node->left->type == en_auto)
                 rv = allowParams && node->left->v.sp->storage_class == sc_parameter;
             else switch (node->left->type)
@@ -3236,6 +3293,8 @@ BOOLEAN IsConstantExpression(EXPRESSION *node, BOOLEAN allowParams)
         case en_x_p:
         case en_x_fp:
         case en_x_sp:
+        case en_x_string:
+        case en_x_object:
         case en_trapcall:
         case en_shiftby:
 /*        case en_movebyref: */

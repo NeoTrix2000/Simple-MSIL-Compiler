@@ -790,6 +790,12 @@ IMODE *gen_deref(EXPRESSION *node, SYMBOL *funcsp, int flags)
         case en_l_bit:
             siz1 = ISZ_BIT;
             break;
+        case en_l_string:
+            siz1 = ISZ_STRING;
+            break;
+        case en_l_object:
+            siz1 = ISZ_OBJECT;
+            break;
         default:
             siz1 = ISZ_UINT;
     }
@@ -1460,6 +1466,25 @@ IMODE *gen_clearblock(EXPRESSION *node, SYMBOL *funcsp)
 }
 
 /*-------------------------------------------------------------------------*/
+static void PushArrayLimits(SYMBOL *funcsp, TYPE *tp)
+{
+    if (!tp || !isarray(tp))
+        return;
+    int n1 = basetype(tp)->size;
+    int n2 = basetype(basetype(tp)->btp)->size;
+    if (n1 && n2)
+    {
+        IMODE *ap = tempreg(-ISZ_UINT, 0);
+        gen_icode(i_assn, ap, make_immed(-ISZ_UINT, n1 / n2), NULL);
+        gen_icode(i_parm, 0, ap, 0);
+    }
+    else
+    {
+        IMODE* ap = gen_expr(funcsp, basetype(tp)->esize, 0, -ISZ_UINT);
+        gen_icode(i_parm, 0, ap, 0);
+    }
+    PushArrayLimits(funcsp, basetype(tp)->btp);
+}
 
 IMODE *gen_assign(SYMBOL *funcsp, EXPRESSION *node, int flags, int size)
 /*
@@ -1470,74 +1495,104 @@ IMODE *gen_assign(SYMBOL *funcsp, EXPRESSION *node, int flags, int size)
  */
 {
     IMODE *ap1, *ap2, *ap3, *ap4;
-    EXPRESSION *enode , * temp;
+    EXPRESSION *enode, *temp;
     LIST *l2, *lp;
     (void)flags;
     (void)size;
-    if (chosenAssembler->arch->preferopts & OPT_REVERSESTORE)
+    if (node->right->type == en_msil_array_init)
     {
-        int n = 0, m;
-        ap1 = gen_expr(funcsp, node->left, (flags & ~F_NOVALUE) | F_STORE, natural_size(node->left));
-        if (ap1->bits > 0 && (chosenAssembler->arch->denyopts & DO_MIDDLEBITS))
+        TYPE *base = node->right->v.tp;
+        PushArrayLimits(funcsp, node->right->v.tp);
+        while (isarray(base))
+            base = basetype(base)->btp;
+        ap1 = gen_expr(funcsp, node->left, (flags & ~F_NOVALUE) | F_STORE, sizeFromType(base));
+        ap2 = (IMODE *)Alloc(sizeof(IMODE));
+        ap2->mode = i_immed;
+        ap2->offset = node->right;
+        ap2->size = ap1->size;
+        gen_icode(i_assn, ap1, ap2, NULL);
+    }
+    else if (node->left->type == en_msil_array_access)
+    {
+        TYPE *base = node->left->v.msilArray->tp;
+        while (isarray(base))
+            base = basetype(base)->btp;
+        gen_expr(funcsp, node->left, (flags & ~F_NOVALUE) | F_STORE, sizeFromType(base));
+        ap2 = gen_expr(funcsp, node->right, (flags & ~F_NOVALUE), sizeFromType(base)); 
+        gen_icode(i_parm, 0, ap2, 0);
+        ap1 = (IMODE *)Alloc(sizeof(IMODE));
+        ap1->mode = i_immed;
+        ap1->offset = node->left;
+        ap1->size = ap2->size;
+        gen_icode(i_assn, ap1, ap1, NULL);
+    }
+    else
+    {
+        if (chosenAssembler->arch->preferopts & OPT_REVERSESTORE)
         {
-            n = ap1->startbit;
-            m = ap1->bits;
-            ap1->bits = ap1->startbit = 0;
-            ap3 = gen_expr(funcsp, node->left, (flags & ~F_NOVALUE) | F_STORE, natural_size(node->left));
-            ap4 = LookupLoadTemp(ap3, ap3);
-            if (ap4 != ap3)
+            int n = 0, m;
+            ap1 = gen_expr(funcsp, node->left, (flags & ~F_NOVALUE) | F_STORE, natural_size(node->left));
+            if (ap1->bits > 0 && (chosenAssembler->arch->denyopts & DO_MIDDLEBITS))
             {
-                ap4->bits = ap3->bits;
-                ap4->startbit = ap3->startbit;
-                ap3->bits = ap3->startbit = 0;
-                gen_icode(i_assn, ap4, ap3, NULL);
-            }            
-            ap3 = gen_bit_mask(ap4);
+                n = ap1->startbit;
+                m = ap1->bits;
+                ap1->bits = ap1->startbit = 0;
+                ap3 = gen_expr(funcsp, node->left, (flags & ~F_NOVALUE) | F_STORE, natural_size(node->left));
+                ap4 = LookupLoadTemp(ap3, ap3);
+                if (ap4 != ap3)
+                {
+                    ap4->bits = ap3->bits;
+                    ap4->startbit = ap3->startbit;
+                    ap3->bits = ap3->startbit = 0;
+                    gen_icode(i_assn, ap4, ap3, NULL);
+                }
+                ap3 = gen_bit_mask(ap4);
+            }
+            else
+            {
+                ap3 = NULL;
+            }
+            ap2 = gen_expr(funcsp, node->right, (flags & ~F_NOVALUE), natural_size(node->left));
+            ap4 = LookupLoadTemp(ap2, ap2);
+            if (ap4 != ap2)
+                gen_icode(i_assn, ap4, ap2, NULL);
+            if (ap3)
+            {
+                gen_icode(i_and, ap4, ap4, make_immed(-ISZ_UINT, (1 << m) - 1));
+                if (n)
+                    gen_icode(i_lsl, ap4, ap4, make_immed(-ISZ_UINT, n));
+                gen_icode(i_or, ap4, ap3, ap4);
+            }
         }
-        else 
+        else
         {
-            ap3 = NULL;
+            ap2 = gen_expr(funcsp, node->right, flags & ~F_NOVALUE, natural_size(node->left));
+            ap4 = LookupLoadTemp(ap2, ap2);
+            if (ap4 != ap2)
+                gen_icode(i_assn, ap4, ap2, NULL);
+            ap1 = gen_expr(funcsp, node->left, (flags & ~F_NOVALUE) | F_STORE, natural_size(node->left));
         }
-        ap2 = gen_expr(funcsp, node->right, (flags & ~F_NOVALUE), natural_size(node->left));
-        ap4 = LookupLoadTemp(ap2, ap2);
-        if (ap4 != ap2)
-            gen_icode(i_assn, ap4, ap2, NULL);
-        if (ap3)
-        {
-            gen_icode(i_and, ap4, ap4, make_immed(-ISZ_UINT, (1 << m) - 1));
-            if (n)
-                gen_icode(i_lsl, ap4, ap4, make_immed(-ISZ_UINT, n));
-            gen_icode(i_or, ap4, ap3, ap4);
-        }
-    }
-    else
-    {
-        ap2 = gen_expr(funcsp, node->right, flags & ~F_NOVALUE, natural_size(node->left));
-        ap4 = LookupLoadTemp(ap2, ap2);
-        if (ap4 != ap2)
-            gen_icode(i_assn, ap4, ap2, NULL);
-        ap1 = gen_expr(funcsp, node->left, (flags & ~F_NOVALUE) | F_STORE, natural_size(node->left));
-    }
-    ap1->vol = ap2->vol;
-    ap2->restricted = ap4->restricted;
-    ap1->offset->pragmas = ap4->offset->pragmas;
-    gen_icode(i_assn, ap1, ap4, NULL);
-    /*
-    if (ap1->mode != i_direct || ap1->offset->type != en_tempref)
-    {
-        ap3 = tempreg(ap4->size, FALSE);
-        gen_icode(i_assn, ap3, ap4, NULL);
-        ap4 = ap3;
-    }
-    ap3 = LookupStoreTemp(ap1, ap1);
-    if (ap3 != ap1)
-    {
-        gen_icode(i_assn, ap3, ap4, NULL);
-        gen_icode(i_assn, ap1, ap3, NULL);
-    }
-    else
+        ap1->vol = ap2->vol;
+        ap2->restricted = ap4->restricted;
+        ap1->offset->pragmas = ap4->offset->pragmas;
         gen_icode(i_assn, ap1, ap4, NULL);
-    */
+        /*
+        if (ap1->mode != i_direct || ap1->offset->type != en_tempref)
+        {
+            ap3 = tempreg(ap4->size, FALSE);
+            gen_icode(i_assn, ap3, ap4, NULL);
+            ap4 = ap3;
+        }
+        ap3 = LookupStoreTemp(ap1, ap1);
+        if (ap3 != ap1)
+        {
+            gen_icode(i_assn, ap3, ap4, NULL);
+            gen_icode(i_assn, ap1, ap3, NULL);
+        }
+        else
+            gen_icode(i_assn, ap1, ap4, NULL);
+        */
+    }
     if (!(flags & F_NOVALUE) && (chosenAssembler->arch->preferopts & OPT_REVERSESTORE) && ap1->mode == i_ind)
     {
         ap1 = gen_expr(funcsp, RemoveAutoIncDec(node->left), (flags & ~F_NOVALUE), natural_size(node->left));
@@ -2510,7 +2565,6 @@ IMODE *gen_expr(SYMBOL *funcsp, EXPRESSION *node, int flags, int size)
     IMODE *lbarrier, *rbarrier;
     int lab0;
     int siz1;
-    int ctype;
     int store = flags & F_STORE;
 
     flags &= ~F_STORE;
@@ -2556,112 +2610,93 @@ IMODE *gen_expr(SYMBOL *funcsp, EXPRESSION *node, int flags, int size)
             rv = ap1;
             break;
         case en_x_wc:
-            ctype = en_c_wc;
             siz1 =  ISZ_WCHAR;
             goto castjoin;
         case en_x_c:
-            ctype = en_c_c;
             siz1 =  - ISZ_UCHAR;
             goto castjoin;
         case en_x_u16:
-            ctype = en_c_u16;
             siz1 =  ISZ_U16;
             goto castjoin;
         case en_x_u32:
-            ctype = en_c_u32;
             siz1 =  ISZ_U32;
             goto castjoin;
         case en_x_bool:
-            ctype = en_c_bool;
             siz1 = ISZ_BOOLEAN;
             goto castjoin;
         case en_x_bit:
             siz1 = ISZ_BIT;
             goto castjoin;
         case en_x_uc:
-            ctype = en_c_uc;
             siz1 = ISZ_UCHAR;
             goto castjoin;
         case en_x_s:
-            ctype = en_c_i;
             siz1 =  - ISZ_USHORT;
             goto castjoin;
         case en_x_us:
-            ctype = en_c_ui;
             siz1 = ISZ_USHORT;
             goto castjoin;
         case en_x_i:
-            ctype = en_c_i;
             siz1 =  - ISZ_UINT;
             goto castjoin;
         case en_x_ui:
-            ctype = en_c_ui;
             siz1 = ISZ_UINT;
             goto castjoin;
         case en_x_l:
-            ctype = en_c_l;
             siz1 =  - ISZ_ULONG;
             goto castjoin;
         case en_x_ul:
-            ctype = en_c_ul;
             siz1 = ISZ_ULONG;
             goto castjoin;
         case en_x_ll:
-            ctype = en_c_ll;
             siz1 =  - ISZ_ULONGLONG;
             goto castjoin;
         case en_x_ull:
-            ctype = en_c_ull;
             siz1 = ISZ_ULONGLONG;
             goto castjoin;
 
+        case en_x_string:
+            siz1 = ISZ_STRING;
+            goto castjoin;
+        case en_x_object:
+            siz1 = ISZ_OBJECT;
+            goto castjoin;
+
         case en_x_f:
-            ctype = en_c_f;
             siz1 = ISZ_FLOAT;
             goto castjoin;
         case en_x_d:
-            ctype = en_c_d;
             siz1 = ISZ_DOUBLE;
             goto castjoin;
         case en_x_ld:
-            ctype = en_c_ld;
             siz1 = ISZ_LDOUBLE;
             goto castjoin;
         case en_x_fi:
-            ctype = en_c_fi;
             siz1 = ISZ_IFLOAT;
             goto castjoin;
         case en_x_di:
-            ctype = en_c_di;
             siz1 = ISZ_IDOUBLE;
             goto castjoin;
         case en_x_ldi:
-            ctype = en_c_ldi;
             siz1 = ISZ_ILDOUBLE;
             goto castjoin;
         case en_x_fc:
-            ctype = en_c_fc;
             siz1 = ISZ_CFLOAT;
             goto castjoin;
         case en_x_dc:
-            ctype = en_c_dc;
             siz1 = ISZ_CDOUBLE;
             goto castjoin;
         case en_x_ldc:
-            ctype = en_c_ldc;
             siz1 = ISZ_CLDOUBLE;
             goto castjoin;
         case en_x_fp:
-            ctype = en_c_ui;
             siz1 = ISZ_FARPTR;
             goto castjoin;
         case en_x_sp:
-            ctype = en_c_ui;
             siz1 = ISZ_SEG;
             goto castjoin;
         case en_x_p:
             siz1 = ISZ_ADDR;
-            ctype = en_c_ui;
  castjoin: 
              ap3 = gen_expr(funcsp, node->left, flags & ~F_NOVALUE, natural_size(node->left));
             ap1 = LookupLoadTemp(NULL, ap3);
@@ -2701,6 +2736,35 @@ IMODE *gen_expr(SYMBOL *funcsp, EXPRESSION *node, int flags, int size)
             }
             rv = ap2;
             break;
+        case en_msil_array_access:
+        {
+            int i;
+            ap1 = gen_expr(funcsp, node->v.msilArray->base, 0, ISZ_ADDR);
+            ap1->msilObject = TRUE;
+            gen_icode(i_parm, 0, ap1, 0);
+            for (i = 0; i < node->v.msilArray->count; i++)
+            {
+                ap1 = gen_expr(funcsp, node->v.msilArray->indices[i], 0, ISZ_ADDR);
+                gen_icode(i_parm, 0, ap1, 0);
+            }
+            if (!(flags & F_STORE))
+            {
+                TYPE *base = node->v.msilArray->tp;
+                while (isarray(base))
+                    base = basetype(base)->btp;
+                rv = tempreg(sizeFromType(base), 0);
+                ap1 = (IMODE *)Alloc(sizeof(IMODE));
+                ap1->size = rv->size;
+                ap1->mode = i_immed;
+                ap1->offset = node;
+                gen_icode(i_assn, rv, ap1, NULL);
+            }
+            else
+            {
+                rv = NULL;
+            }
+            break;
+        }
         case en_substack:
             ap1 = gen_expr(funcsp, node->left, 0, ISZ_UINT );
             gen_icode(i_substack, ap2 = tempreg(ISZ_ADDR, 0), ap1, NULL );
@@ -2816,6 +2880,13 @@ IMODE *gen_expr(SYMBOL *funcsp, EXPRESSION *node, int flags, int size)
             }
             rv = ap1;
             break;
+        case en_c_string:
+            ap1 = (IMODE *)Alloc(sizeof(IMODE));
+            ap1->mode = i_immed;
+            ap1->size = ISZ_STRING;
+            ap1->offset = node;
+            rv = ap1;
+            break;
         case en_c_f:
         case en_c_d:
         case en_c_ld:
@@ -2895,6 +2966,8 @@ IMODE *gen_expr(SYMBOL *funcsp, EXPRESSION *node, int flags, int size)
         case en_l_fp:
         case en_l_sp:
         case en_l_bit:
+        case en_l_string:
+        case en_l_object:
             ap1 = gen_deref(node, funcsp, flags | store);
             rv = ap1;
             break;
@@ -3009,9 +3082,16 @@ IMODE *gen_expr(SYMBOL *funcsp, EXPRESSION *node, int flags, int size)
             rv = ap1 ;
             break;
         case en_void:
-            gen_void(node->left, funcsp);
-            ap1 = gen_expr( funcsp, node->right, flags, size);
+        {
+            EXPRESSION *search = node;
+            while (search->type == en_void)
+            {
+                gen_void(search->left, funcsp);
+                search = search->right;
+            }
+            ap1 = gen_expr(funcsp, search, flags, size);
             rv = ap1;
+        }
             break;
         case en_literalclass:
             gen_void(node->left, funcsp);
@@ -3160,6 +3240,8 @@ int natural_size(EXPRESSION *node)
     {
         case en_thisshim:
             return ISZ_ADDR;
+        case en_msil_array_access:
+            return ISZ_ADDR;
         case en_stmt:
             return natural_size(node->left);
         case en_funcret:
@@ -3277,6 +3359,13 @@ int natural_size(EXPRESSION *node)
             return  - ISZ_ULONGLONG;
         case en_imode:
             return ISZ_ADDR;
+        case en_c_string:
+        case en_l_string:
+        case en_x_string:
+            return ISZ_STRING;
+        case en_l_object:
+        case en_x_object:
+            return ISZ_OBJECT;
         case en_trapcall:
         case en_label:
         case en_auto:
@@ -3366,7 +3455,12 @@ int natural_size(EXPRESSION *node)
         case en_literalclass:
             return - ISZ_UINT;
         case en_void:
-            return natural_size(node->right);
+            while (node->type == en_void && node->right)
+                node = node->right;
+            if (node->type == en_void)
+                return 0;
+            else
+                return natural_size(node);
         case en_cond:
             return natural_size(node->right);
         case en_atomic:
