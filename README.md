@@ -49,7 +49,7 @@ Managed arrays: when the array indexes appear before the variable name, the arra
 ------------------------------------
 implementation notes:
 
-this compiler will generate either a .EXE or .DLL file, or alternately a .il file suitable for viewing or compiling with ilasm.   The compiler uses an independent library 'dotnetpelib' to create the output.
+this compiler will generate either a .EXE or .DLL file, or alternately a .il file suitable for viewing or compiling with ilasm.   Additionally, the compiler is capable of generating object files in the familiar object-file-per-module paradigm that can be linked with a linker called netlink.   This linker is also part of the package.   The compiler uses an independent library 'dotnetpelib' to create the output.
 
 on the technical aspects, there are several MSIL limitations
 
