@@ -927,7 +927,6 @@ void internalError(int a)
 }
 
 //-------------------------------------------------------------------------
-
 int main(int argc, char *argv[])
 {
     char buffer[260];
@@ -951,7 +950,6 @@ int main(int argc, char *argv[])
     parseconfigfile(argv[0]);
     if (!parse_args(&argc, argv, TRUE) || (!file_count && argc == 1))
         usage(argv[0]);
-
 
     /* tack the environment includes in */
     addinclude();
@@ -981,7 +979,6 @@ int main(int argc, char *argv[])
     signal(SIGINT, ctrlchandler);
     if (setjmp(ctrlcreturn))
         exit(1);
-        
     /* loop through and compile all the files on the file list */
     while (clist)
     {
@@ -1013,6 +1010,7 @@ int main(int argc, char *argv[])
         browse_init();
         xceptinit();
         oinit();
+
         //      if (!prm_quieterrors)
         //         printf("file: %s\n",clist->data);
         strcpy(buffer, clist->data);

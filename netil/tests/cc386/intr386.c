@@ -34,6 +34,7 @@ mailto::camille@bluegrass.net
 #include "ccerr.h"
 #include "lists.h"
 #include "gen386.h"
+#include "stdlib.h"
 
 #define KWINTRINSHASH 33
 

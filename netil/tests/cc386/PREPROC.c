@@ -37,6 +37,8 @@ mailto::camille@bluegrass.net
 #include "diag.h"
 #include <time.h>
 #include <dir.h>
+#include <stdlib.h>
+
 extern int prm_nasm, prm_c99;
 extern short inputline[];
 extern int inputFile;
@@ -317,7 +319,7 @@ char *getauxname(short *ptr, char **bufp)
 
 //-------------------------------------------------------------------------
 
-static int pragerror(int errno)
+static int pragerror(int errnum)
 {
     char buf[100],  *p = buf, i = 99;
     short *s = lptr;
@@ -326,7 +328,7 @@ static int pragerror(int errno)
     while (i-- &&  *s &&  *s != '\n')
         *p++ =  *s++;
     *p = 0;
-    basicerror(errno, buf);
+    basicerror(errnum, buf);
     return (incldepth == 0);
 }
 

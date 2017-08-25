@@ -32,6 +32,7 @@ mailto::camille@bluegrass.net
 #include <stdio.h>
 #include <string.h>
 #include <float.h>
+#include <stdlib.h>
 #include "lists.h"
 #include "expr.h"
 #include "c.h"
