@@ -183,9 +183,6 @@
     <ClCompile Include="..\netil\config.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\netil\gen.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\netil\Process.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -196,6 +193,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\netil\import.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\netil\gen.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
