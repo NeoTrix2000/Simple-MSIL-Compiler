@@ -15,12 +15,11 @@ The results are undefined if you try to use some extension such as alloca.
 
 There may be a variety of bugs.
 
-This version builds independently from the main Orange C branch, except that you may want to use the Orange C includes directory when compiling files with a compiler you build.  If you want to build it, build files for the VS2015 community edition are in the 'occil' subdirectory (open the .sln file).
+The sources for this version build independently from the main Orange C branch, except that you may want to use the Orange C includes directory when compiling files with a compiler you build.   All sources in this package have a VS2015 community edition solution.
 
 Run the compiler 'occil' on a simple C program (test.c is included as an example).
 
-It will generate a PE EXECUTABLE file.   It will try to find c runtime library exports from mscvrt.dll.
-
+occil automatically loads symbols from mscorlib
 ------------------------------------
 Additions to the language to support .net
 
@@ -67,7 +66,10 @@ This compiler is capable of importing static functions from .net assemblies.
 By default the compiler automatically imports the entry points for msvcrt.dll, and the occmsil.dll used for function pointer thunking.  A .net assembly 'lsmsilcrtl' is used for runtime support - mostly it performs malloc and free in managed code and exports some functions useful for handling variable length argument lists and command lines.   MSCORLIB
 is also automatically loaded and its static functions are available for use.
 
-It is possible to have the compiler combine multiple files into a single output; in this way it performs as a psuedo-linker as well.   Simply specify all the input files on the command line.   The compiler takes wildcards on the command line so you can do something like this for example to compile all the files, linking against several WIN32 DLLs, and giving it an outer namespace and class to be able to reference from C#.   The /Wd switch means make a DLL.
+It is possible to have the compiler combine multiple files into a single output; in this way it performs as a psuedo-linker as well.   Simply specify all the input files on the command line.   The compiler takes wildcards on the command line so you can do something like this for example to compile all the files, linking against several WIN32 DLLs, and giving it an outer namespace and class to be able to reference from C#.   The /Wd switch means make a DLL.  /Wg means windows GUI.   /Wc (the default) means windows console.   Adding l on the end of a /W switch (e.g. /Wcl) means load
+lscrtlil.dll as the unmanaged runtime, instead of msvcrt.dll.   You might want to do this to get access to C99 and C11
+functions.
+
 
 occil /omyoutputfile *.c /Wd /Lkernel32;user32;gdi32 /Nmynamespace.myclass
 
@@ -75,7 +77,7 @@ The compiler will create structures and enumerations for things found in the C c
 
 This compiler will also enable C# to call managed functions with variable length argument lists.  
 
-the /L switch may now also be used to specify .net assemblies to load.
+the /L switch may now also be used to specify .net assemblies to load.  mscorlib.dll is automatically loaded by the compiler
 
 
 Beyond that this is a C11 compiler, but some things currently aren't implemented or are implemented in a limited fashion
