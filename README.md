@@ -56,6 +56,12 @@ Managed arrays: when the array indexes appear before the variable name, the arra
 C++ constructors:   will use newobj to call a managed version of the constructor and create an object
 
 
+Set the environment variable OCCIL_ROOT to the orange c path for it to find include files
+
+e.g.
+
+set OCCIL_ROOT=c:\orangec
+
 ------------------------------------
 implementation notes:
 
