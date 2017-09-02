@@ -31,19 +31,30 @@ __string declare an MSiL string.  Constant strings will be loaded with the .net 
 	functions.  The same syntax as used for 'C' language strings is used for these strings.   Usually the string usage
 	can be auto detected from context, but in rare situations the compiler will consider such a string ambiguous and
 	you have to cast it:   (__string)"hi"
-__object declare an msil object.  Has minimal use for the moment
+__object declare an msil object.  Has minimal use for the moment.   If you cast to 'object' you it will box the result
+__cpblk invokes the cpblk msil function.   It is invoked with arguments similar to memcpy
+__initblk invokes the initblk msil function.   It is invoked with arguments similar to memset
+
+native int is a new type to support the 'native' int size of MSIL
 
 C++ & operator: when used on a function parameter, makes the parameter a 'ref' parameter.  No other current use is
 	possible.   For example int myfunc(int &a);
 C++ namespace qualifiers may be used to reference a function in a loaded assembly.  Since mscorlib is always preloaded,
 	the following is always possible:   System::Console::WriteLine("hello, world!");.   It is also possible to use the
 	using directive:  using namespace System;
+basic types will automatically be converted to their 'boxed' type for various purposes.   For example:
+	using namespace System;
+	int aa = 5;
+	Console::WriteLine(aa.ToString());
+Instance members may also be called:   aa.ToString();
 Managed arrays: when the array indexes appear before the variable name, the array is allocated as either an msil array or
 	a multidimensional array of objects.   Such arrays can only be used or passed to functions; you cannot do anything
 	that would be equivalent to taking the address of the related managed objects.   For example:
 
 	int [5]aa; // managed
 	int bb[5]; // standard C array
+C++ constructors:   will use newobj to call a managed version of the constructor and create an object
+
 
 ------------------------------------
 implementation notes:
