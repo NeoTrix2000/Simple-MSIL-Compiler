@@ -23,13 +23,18 @@ Run the compiler `occil` on a simple C program (`test.c` is included as an examp
 
 ## Additions to the language to support .NET
 
-* `__unmanaged` is used to clarify that a pointer in a structure is a pointer to an unmanaged function.   Usually the compiler can figure out whether a function pointer is managed or unmanaged, but in this case the definition is ambiguous 	and it defaults
- to managed.
+* `__unmanaged` is used to clarify that a pointer in a structure is a pointer to an unmanaged function.   Usually the compiler can figure out whether a function pointer is managed or unmanaged, but in this case the definition is ambiguous 	and it defaults to managed.
 * `__string` declare an MSIL string.  Constant strings will be loaded with the .NET `ldstr` instruction instead of being treated as C language strings.  Note that this means they are wide character strings.  You can natively concatenate strings, pass them to functions, and return them.  You could also use `mscorlib` functions to perform other functions.  The same syntax as used for 'C' language strings is used for these strings.   Usually the string usage can be auto detected from context, but in rare sit
 uations the compiler will consider such a string ambiguous and you have to cast it:   `(__string) "hi"`
-* `__object` declare an MSIL object.  Has minimal use for the moment.   If you cast to `object` you will box the result.
+* `__object` declare an MSIL object.  Has minimal use for the moment.   If you cast to `object` you will box the original value.
 * `__cpblk` invokes the cpblk MSIL instruction.   It is invoked with arguments similar to `memcpy`.
 *  `__initblk` invokes the `initblk` MSIL instruction.   It is invoked with arguments similar to `memset`.
+* '__property' declares a .net property.   Only simple variables at global scope can be declared as properties; they are currently never instance variables. (properties imported from other assemblies can be instance variables).  the /N command line switch must be used to create a containing class (.Net will not allow properties outside of classes).   
+For example:
+	'__property int a; // creates a property, in this case a backing variable and appropriate getters and setters
+				are automatically created.
+	__property int b { get { return 5;} set { printf("%d\n", value); } }; // here 'value' is the value we are 
+				setting it to.
 *  `native int` is a new type to support the 'native' int size of MSIL.
 *  C++ `&` operator: When used on a function parameter, makes the parameter a `ref` parameter.  No other current use is possible.   For example: `int myfunc(int &a);`
 *  C++ namespace qualifiers may be used to reference a function in a loaded assembly.  Since `mscorlib` is always preloaded, the following is always possible:   `System::Console::WriteLine("hello, world!");`.   It is also possible to use the using directive:  `using namespace System;`.
