@@ -35,6 +35,7 @@ For example:
 				are automatically created.
 	__property int b { get { return 5;} set { printf("%d\n", value); } }; // here 'value' is the value we are 
 				setting it to.
+* '__entrypoint' classifies a function as an entrypoint.   If you add this to a function the normal C startup will be ignored and the function will be called as the main function.
 *  `native int` is a new type to support the 'native' int size of MSIL.
 *  C++ `&` operator: When used on a function parameter, makes the parameter a `ref` parameter.  No other current use is possible.   For example: `int myfunc(int &a);`
 *  C++ namespace qualifiers may be used to reference a function in a loaded assembly.  Since `mscorlib` is always preloaded, the following is always possible:   `System::Console::WriteLine("hello, world!");`.   It is also possible to use the using directive:  `using namespace System;`.
