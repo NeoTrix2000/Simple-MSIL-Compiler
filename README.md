@@ -14,8 +14,7 @@ The results are undefined if you try to use some extension such as `alloca`.
 
 There may be a variety of bugs.
 
-The sources for this version build independently from the main Orange C branch, except that you may want to use the Orange C includes directory when compiling files with a compiler you build.   All sources in this package have a VS2015 community edition s
-olution.
+The sources for this version build independently from the main Orange C branch, except that you may want to use the Orange C includes directory when compiling files with a compiler you build.   All sources in this package have a VS2017 community edition solution.
 
 Run the compiler `occil` on a simple C program (`test.c` is included as an example).
 
