@@ -68,7 +68,7 @@ HASHTABLE *CreateHashTable(int size);
 #define F_ARITHMETIC 4
 #define F_STRUCTURE 8
 #define F_POINTER 16
-
+#define F_CONVERSION 32
 static const int rank[] = 
 {
 //    0,0,0,0,0,1,1,2,2,2,2,2,2,3,4,5,6,6,7
@@ -377,7 +377,17 @@ LEXEME *nestedPath(LEXEME *lex, SYMBOL **sym, NAMESPACEVALUES **ns,
                 sp = classsearch(buf, FALSE, FALSE);
                 dropStructureDeclaration();
             }
-            if (sp)
+            if (sp && basetype(sp->tp)->type == bt_enum)
+            {
+                if (!MATCHKW(lex, classsel))
+                    break;
+                lex = getsym();
+                finalPos = lex;
+                strSym = sp;
+                qualified = TRUE;
+                break;
+            }
+            else if (sp)
             {
                 if (sp->templateLevel && (!sp->instantiated || MATCHKW(lex, lt)))
                 {
@@ -998,6 +1008,8 @@ LEXEME *getIdName(LEXEME *lex, SYMBOL *funcsp, char *buf, int *ov, TYPE **castTy
             if (castType)
             {
                 *castType = tp;
+                if (isautotype(tp) & !lambdas) // make an exception so we can compile templates for lambdas
+                    error(ERR_AUTO_NOT_ALLOWED_IN_CONVERSION_FUNCTION);
             }
             strcpy(buf, overloadNameTab[*ov = CI_CAST]);
         }
@@ -1405,23 +1417,23 @@ static LIST *searchNS(SYMBOL *sp, SYMBOL *nssp, LIST *in)
 }
 SYMBOL *lookupSpecificCast(SYMBOL *sp, TYPE *tp)
 {
-    return getUserConversion(F_STRUCTURE, tp, sp->tp, NULL, NULL, NULL, NULL, NULL, FALSE);
+    return getUserConversion(F_CONVERSION | F_STRUCTURE, tp, sp->tp, NULL, NULL, NULL, NULL, NULL, FALSE);
 }
 SYMBOL *lookupNonspecificCast(SYMBOL *sp, TYPE *tp)
 {
-    return getUserConversion(0, tp, sp->tp, NULL, NULL, NULL, NULL, NULL, TRUE);
+    return getUserConversion(F_CONVERSION, tp, sp->tp, NULL, NULL, NULL, NULL, NULL, TRUE);
 }
 SYMBOL *lookupIntCast(SYMBOL *sp, TYPE *tp, BOOLEAN implicit)
 {
-    return getUserConversion(F_INTEGER, tp, sp->tp, NULL, NULL, NULL, NULL, NULL, !implicit);
+    return getUserConversion(F_CONVERSION | F_INTEGER, tp, sp->tp, NULL, NULL, NULL, NULL, NULL, implicit);
 }
 SYMBOL *lookupArithmeticCast(SYMBOL *sp, TYPE *tp, BOOLEAN implicit)
 {
-    return getUserConversion(F_ARITHMETIC, tp, sp->tp, NULL, NULL, NULL, NULL, NULL, !implicit);
+    return getUserConversion(F_CONVERSION | F_ARITHMETIC, tp, sp->tp, NULL, NULL, NULL, NULL, NULL, implicit);
 }
 SYMBOL *lookupPointerCast(SYMBOL *sp, TYPE *tp)
 {
-    return getUserConversion(F_POINTER, tp, sp->tp, NULL, NULL, NULL, NULL, NULL, TRUE);
+    return getUserConversion(F_CONVERSION | F_POINTER, tp, sp->tp, NULL, NULL, NULL, NULL, NULL, TRUE);
 }
 static LIST *structuredArg(SYMBOL *sp, LIST *in, TYPE *tp)
 {
@@ -2374,9 +2386,9 @@ static SYMBOL *getUserConversion(int flags,
                 SYMBOL *candidate = spList[i];
                 if (candidate)
                 {
-                    if (candidate->isExplicit && honorExplicit)
+                    if (honorExplicit && candidate->isExplicit && !(flags & F_CONVERSION))
                     {
-                        spList[i] = NULL ;
+                        spList[i] = NULL;
                     }
                     else
                     {
@@ -2388,13 +2400,13 @@ static SYMBOL *getUserConversion(int flags,
                             TYPE *tpc = basetype(candidate->tp)->btp;
                             if (isref(tpc))
                                 tpc = basetype(tpc)->btp;
-                            if (((flags & F_INTEGER) && !isint(tpc))
+                            if (tpc->type != bt_auto && (((flags & F_INTEGER) && !isint(tpc))
                                 || ((flags & F_POINTER) && !ispointer(tpc) && basetype(tpc)->type != bt_memberptr)
                                 || ((flags & F_ARITHMETIC) && !isarithmetic(tpc))
-                                || ((flags & F_STRUCTURE) && !isstructured(tpc)))
+                                || ((flags & F_STRUCTURE) && !isstructured(tpc))))
                             {
                                 seq3[n2++] = CV_NONE;
-                                seq3[n2+n3++] = CV_NONE;
+                                seq3[n2 + n3++] = CV_NONE;
                             }
                             else
                             {
@@ -2411,8 +2423,62 @@ static SYMBOL *getUserConversion(int flags,
                                 thistp.type = bt_pointer;
                                 thistp.size = getSize(bt_pointer);
                                 getSingleConversion(((SYMBOL *)args->p)->tp, &thistp, &exp, &n2, seq3, candidate, NULL, TRUE);
-                                seq3[n2+ n3++] = CV_USER;
-                                getSingleConversion(tppp, basetype(candidate->tp)->btp, lref ? NULL : &exp, &n3, seq3 + n2, candidate, NULL, TRUE);
+                                seq3[n2 + n3++] = CV_USER;
+                                if (tpc->type == bt_auto)
+                                {
+                                    seq3[n2 + n3++] = CV_USER;
+                                }
+                                else if (isfuncptr(tppp))
+                                {
+                                    int n77 = n3;
+                                    getSingleConversion(basetype(candidate->tp)->btp, tppp, lref ? NULL : &exp, &n3, seq3 + n2, candidate, NULL, TRUE);
+                                    if (n77 != n3 - 1 || seq3[n2 + n77] != CV_IDENTITY)
+                                    {
+                                        SYMBOL *spf = basetype(basetype(tppp)->btp)->sp;
+                                        n3 = n77;
+                                        if (spf->templateLevel && spf->storage_class == sc_typedef && !spf->instantiated)
+                                        {
+                                            TEMPLATEPARAMLIST *args = spf->templateParams->next;
+                                            spf = spf->mainsym;
+                                            if (spf)
+                                            {
+                                                TEMPLATEPARAMLIST *hold[100];
+                                                int count = 0;
+                                                TEMPLATEPARAMLIST *srch = args;
+                                                while (srch)
+                                                {
+                                                    hold[count++] = srch->p->byClass.dflt;
+                                                    srch->p->byClass.dflt = srch->p->byClass.val;
+                                                    srch = srch->next;
+                                                }
+                                                spf = GetTypedefSpecialization(spf, args);
+                                                spf->tp = SynthesizeType(spf->tp, NULL, FALSE);
+                                                getSingleConversion(basetype(candidate->tp)->btp, spf->tp, lref ? NULL : &exp, &n3, seq3 + n2, candidate, NULL, TRUE);
+                                                srch = args;
+                                                count = 0;
+                                                while (srch)
+                                                {
+                                                    srch->p->byClass.val = srch->p->byClass.dflt;
+                                                    srch->p->byClass.dflt = hold[count++];
+                                                    srch = srch->next;
+                                                }
+
+                                            }
+                                            else
+                                            {
+                                                seq3[n2 + n3++] = CV_NONE;
+                                            }
+                                        }
+                                        else
+                                        {
+                                            getSingleConversion(basetype(candidate->tp)->btp, tppp, lref ? NULL : &exp, &n3, seq3 + n2, candidate, NULL, TRUE);
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    getSingleConversion(basetype(candidate->tp)->btp, tppp, lref ? NULL : &exp, &n3, seq3 + n2, candidate, NULL, TRUE);
+                                }
                             }
                         }
                         else
@@ -2426,24 +2492,24 @@ static SYMBOL *getUserConversion(int flags,
                                 }
                                 else
                                 {
-                                    SYMBOL *first, *next=NULL;
+                                    SYMBOL *first, *next = NULL;
                                     SYMBOL *th = (SYMBOL *)args->p;
                                     args = args->next;
                                     first = (SYMBOL *)args->p;
                                     if (args->next)
-                                        next = (SYMBOL *) args->next->p;
+                                        next = (SYMBOL *)args->next->p;
                                     if (!next || next->init)
                                     {
                                         if (first->tp->type != bt_ellipse)
                                         {
                                             getSingleConversion(first->tp, tpa, expa, &n2, seq3, candidate, NULL, TRUE);
-                                            if (n2 && seq3[n2-1] == CV_IDENTITY)
+                                            if (n2 && seq3[n2 - 1] == CV_IDENTITY)
                                             {
                                                 n2--;
                                             }
                                         }
-                                        seq3[n2+n3++] = CV_USER;
-                                        getSingleConversion(tppp, basetype(basetype(th->tp)->btp)->sp->tp, &exp, &n3, seq3+n2, candidate, NULL, TRUE);
+                                        seq3[n2 + n3++] = CV_USER;
+                                        getSingleConversion(tppp, basetype(basetype(th->tp)->btp)->sp->tp, &exp, &n3, seq3 + n2, candidate, NULL, TRUE);
                                     }
                                     else
                                     {
@@ -2452,13 +2518,13 @@ static SYMBOL *getUserConversion(int flags,
                                 }
                             }
                         }
-                        for (j=0; j < n2+n3; j++)
+                        for (j = 0; j < n2 + n3; j++)
                             if (seq3[j] == CV_NONE)
                                 break;
-                        m1 = n2+n3;
-                        while (m1 && seq3[m1-1] == CV_IDENTITY)
+                        m1 = n2 + n3;
+                        while (m1 && seq3[m1 - 1] == CV_IDENTITY)
                             m1--;
-                        if (j >= n2+n3 && m1 <= 4)
+                        if (j >= n2 + n3 && m1 <= 4)
                         {
                             lenList[i] = Alloc(sizeof(int) * 2);
                             icsList[i] = Alloc(sizeof(enum e_cvsrn) * (n2 + n3));
@@ -2498,6 +2564,10 @@ static SYMBOL *getUserConversion(int flags,
 //                }
  //               else
                 {
+                    if (honorExplicit && found1->isExplicit)
+                    {
+                        error(ERR_IMPLICIT_USE_OF_EXPLICIT_CONVERSION);
+                    }
                     if (seq)
                     {
 //                        seq[*n++]= CV_USER;
@@ -2508,11 +2578,21 @@ static SYMBOL *getUserConversion(int flags,
                             *userFunc = found1;
                     }
                     infunc = FALSE;
-                    if (found1->deferredCompile && !found1->inlineFunc.stmt)
+                    if (flags & F_CONVERSION)
                     {
-                        deferredCompileOne(found1);
+                        GENREF(found1);
+                        if (found1->templateLevel && !templateNestingCount && found1->templateParams)
+                        {
+                            found1 = TemplateFunctionInstantiate(found1, FALSE, FALSE);
+                        }
+                        else
+                        {
+                            if (found1->deferredCompile && !found1->inlineFunc.stmt)
+                            {
+                                deferredCompileOne(found1);
+                            }
+                        }
                     }
-                    
                     return found1;
                 }
             }
@@ -2989,9 +3069,15 @@ void getSingleConversion(TYPE *tpp, TYPE *tpa, EXPRESSION *expa, int *n,
         }
         else if (isfuncptr(tpp))
         {
+            TYPE *rv;
             tpp = basetype(tpp)->btp;
+            rv = basetype(tpp)->btp;
             if (isfuncptr(tpa))
+            {
                 tpa = basetype(tpa)->btp;
+                if (rv->type == bt_auto)
+                    basetype(tpp)->btp = basetype(tpa)->btp;
+            }
             if (comparetypes(tpp, tpa, TRUE))
             {
                 seq[(*n)++] = CV_IDENTITY;
@@ -3004,6 +3090,7 @@ void getSingleConversion(TYPE *tpp, TYPE *tpa, EXPRESSION *expa, int *n,
             {
                 seq[(*n)++] = CV_NONE;
             }                            
+            basetype(tpp)->btp = rv;
         }
         else if (basetype(tpp)->nullptrType)
         {
@@ -4149,6 +4236,12 @@ SYMBOL *GetOverloadedFunction(TYPE **tp, EXPRESSION **exp, SYMBOL *sp,
             }
             if (found1)
             {
+                if (theCurrentFunc && !found1->constexpression)
+                {
+                    theCurrentFunc->nonConstVariableUsed = TRUE;
+                }
+                if (found1->deprecationText)
+                    deprecateMessage(found1);
                 if (!(flags & _F_SIZEOF))
                 {
                     if (found1->templateLevel && (found1->templateParams || found1->isDestructor))
@@ -4176,6 +4269,8 @@ SYMBOL *GetOverloadedFunction(TYPE **tp, EXPRESSION **exp, SYMBOL *sp,
                         }
                     }
                 }
+                if (isautotype(basetype(found1->tp)->btp))
+                    errorsym(ERR_AUTO_FUNCTION_RETURN_TYPE_NOT_DEFINED, found1);
             }
         }
         if (!toErr && found2)
