@@ -23,8 +23,7 @@ Run the compiler `occil` on a simple C program (`test.c` is included as an examp
 ## Additions to the language to support .NET
 
 * `__unmanaged` is used to clarify that a pointer in a structure is a pointer to an unmanaged function.   Usually the compiler can figure out whether a function pointer is managed or unmanaged, but in this case the definition is ambiguous 	and it defaults to managed.
-* `__string` declare an MSIL string.  Constant strings will be loaded with the .NET `ldstr` instruction instead of being treated as C language strings.  Note that this means they are wide character strings.  You can natively concatenate strings, pass them to functions, and return them.  You could also use `mscorlib` functions to perform other functions.  The same syntax as used for 'C' language strings is used for these strings.   Usually the string usage can be auto detected from context, but in rare sit
-uations the compiler will consider such a string ambiguous and you have to cast it:   `(__string) "hi"`
+* `__string` declare an MSIL string.  Constant strings will be loaded with the .NET `ldstr` instruction instead of being treated as C language strings.  Note that this means they are wide character strings.  You can natively concatenate strings, pass them to functions, and return them.  You could also use `mscorlib` functions to perform other functions.  The same syntax as used for 'C' language strings is used for these strings.   Usually the string usage can be auto detected from context, but in rare situations the compiler will consider such a string ambiguous and you have to cast it:   `(__string) "hi"`
 * `__object` declare an MSIL object.  Has minimal use for the moment.   If you cast to `object` you will box the original value.
 * `__cpblk` invokes the cpblk MSIL instruction.   It is invoked with arguments similar to `memcpy`.
 *  `__initblk` invokes the `initblk` MSIL instruction.   It is invoked with arguments similar to `memset`.
@@ -45,6 +44,9 @@ For example:
 * Instance members may also be called: `aa.ToString();`.
 * Managed arrays: when the array indexes appear before the variable name, the array is allocated as either an MSIL array or a multidimensional array of objects.   Such arrays can only be used or passed to functions; you cannot do anything that would be equivalent to taking the address of the related managed objects. For example: `int [5]aa;`.
 * C++ constructors: Will use `newobj` to call a managed version of the constructor and create an object
+* #pragma netlib allows loading a .net assembly programmattically.   For example to get access to MessageBox do the following:
+	#pragma netlib System.Windows.Forms
+	using namespace System::Windows::Forms
 
 ## Runtime Environment
 Set the environment variable `OCCIL_ROOT` to the Orange C path for it to find include files and add the OCCIL executables to the path:
