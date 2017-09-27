@@ -55,6 +55,7 @@ extern "C"
     extern NAMESPACEVALUES *globalNameSpace;
     extern LIST *nameSpaceList;
     extern BOOLEAN managed_library;
+    extern TYPE stdint;
 }
 
 void AddType(SYMBOL *sym, Type *type);
@@ -62,7 +63,7 @@ void AddType(SYMBOL *sym, Type *type);
 class Importer :public Callback
 {
 public:
-    Importer() : level_(0), inlsmsilcrtl(0) { }
+    Importer() : level_(0), inlsmsilcrtl_(0), pass_(0) { }
     virtual ~Importer() { }
 
     virtual bool EnterAssembly(const AssemblyDef *) override;
@@ -80,7 +81,7 @@ public:
     virtual bool EnterMethod(const Method *) override;
     virtual bool EnterField(const Field *) override;
     virtual bool EnterProperty(const Property *) override;
-
+    void Pass(int p) { pass_ = p;  }
 #if 1
 #define diag(x,y)
 #else
@@ -97,19 +98,23 @@ public:
 #endif
 protected:
     TYPE *TranslateType(Type *);
-    bool useGlobal() const { return managed_library && inlsmsilcrtl && structures_.size() == 1; }
+    bool useGlobal() const { return managed_library && inlsmsilcrtl_ && structures_.size() == 1; }
 private:
     std::deque<SYMBOL *> nameSpaces_;
     std::deque<SYMBOL *> structures_;
-    std::map<std::string, SYMBOL *> cachedClasses;
+    std::map<std::string, SYMBOL *> cachedClasses_;
     int level_;
-    bool inlsmsilcrtl;
+    int pass_;
+    bool inlsmsilcrtl_;
     static e_bt translatedTypes[];
 };
 
 void Import()
 {
     Importer importer;
+    importer.Pass(1);
+    peLib->Traverse(importer);
+    importer.Pass(2);
     peLib->Traverse(importer);
 }
 
@@ -132,27 +137,49 @@ e_bt Importer::translatedTypes[] =
 
 TYPE *Importer::TranslateType(Type *in)
 {
-    TYPE *rv = NULL;
+    TYPE *rv = NULL, **last = &rv;
     if (in)
     {
         enum e_bt tp;
         if (in->ArrayLevel())
-            return NULL;
+        {
+            if (in->ArrayLevel() > 1) // this is because with the current version of dotnetpelib we don't know the index ranges
+                return NULL;
+            *last = (TYPE *)Alloc(sizeof(TYPE));
+            (*last)->type = bt_pointer;
+            (*last)->array = TRUE;
+            (*last)->msil = TRUE; // arrays are always MSIL when imported from an assembly
+
+            last = &(*last)->btp;
+        }
         if (in->GetBasicType() == Type::cls)
         {
-            SYMBOL *sp = cachedClasses[in->GetClass()->Name()];
+            SYMBOL *sp = cachedClasses_[in->GetClass()->Name()];
             if (!sp)
                 return nullptr;
-            rv = sp->tp;
+            if (in->ArrayLevel())
+            {
+                (*last) = (TYPE *)Alloc(sizeof(TYPE));
+                **last = *sp->tp;
+                (*last)->msil = TRUE;
+            }
+            else
+            {
+                (*last) = sp->tp;
+            }
         }
         else
         {
             tp = translatedTypes[in->GetBasicType()];
             if (tp == bt_void && in->GetBasicType() != Type::Void)
                 return nullptr;
-            rv = (TYPE *)Alloc(sizeof(TYPE));
-            rv->type = tp;
-            rv->size = 1;
+            (*last) = (TYPE *)Alloc(sizeof(TYPE));
+            (*last)->type = tp;
+            (*last)->size = 1;
+            if (in->ArrayLevel())
+            {
+                (*last)->msil = TRUE;
+            }
         }
         for (int i=0; i < in->PointerLevel(); i++)
         {
@@ -248,7 +275,7 @@ bool Importer::EnterClass(const Class *cls)
     level_++;
     if (structures_.size() == 0 && nameSpaces_.size() == 1)
     {
-        inlsmsilcrtl = cls->Name() == "rtl" && !strcmp(nameSpaces_.back()->name, "lsmsilcrtl");
+        inlsmsilcrtl_ = cls->Name() == "rtl" && !strcmp(nameSpaces_.back()->name, "lsmsilcrtl");
     }
     if (nameSpaces_.size())
     {
@@ -270,13 +297,22 @@ bool Importer::EnterClass(const Class *cls)
             sp->name = litlate((char *)cls->Name().c_str());
             sp->storage_class = sc_type;
             sp->tp = (TYPE *)Alloc(sizeof(TYPE));
-            sp->tp->type = bt_struct;
-            sp->tp->size = 1;// needs to be NZ but we don't really care what is is in the MSIL compiler
+            if (typeid(*cls) == typeid(Enum))
+            {
+                sp->tp->type = bt_enum;
+                sp->tp->size = getSize(bt_int);
+                sp->tp->btp = &stdint;
+            }
+            else
+            {
+                sp->tp->type = bt_struct;
+                sp->tp->size = 1;// needs to be NZ but we don't really care what is is in the MSIL compiler
+                sp->trivialCons = TRUE;
+            }
             sp->tp->syms = CreateHashTable(1);
             sp->tp->rootType = sp->tp;
             sp->tp->sp = sp;
             sp->declfile = sp->origdeclfile = "[import]";
-            sp->trivialCons = TRUE;
             if (structures_.size())
                 sp->parentClass = structures_.back();
             if (nameSpaces_.size())
@@ -290,11 +326,11 @@ bool Importer::EnterClass(const Class *cls)
                 insert(sp, structures_.size() ? structures_.back()->tp->syms : nameSpaces_.back()->nameSpaceValues->syms);
             sp->msil = (void *)cls;
             AddType(sp, peLib->AllocateType(const_cast<Class *>(cls)));
-            cachedClasses[sp->name] = sp;
+            cachedClasses_[sp->name] = sp;
         }
         else
         {
-            if (!isstructured(sp->tp))
+            if (!isstructured(sp->tp) && sp->tp->type != bt_enum)
             {
                 fatal("internal error: misuse of class");
             }
@@ -309,13 +345,13 @@ bool Importer::ExitClass(const Class *cls)
     diag("Exit Class", cls->Name());
     structures_.pop_back();
     if (!structures_.size())
-        inlsmsilcrtl = FALSE;
+        inlsmsilcrtl_ = FALSE;
     return true;
 }
 bool Importer::EnterMethod(const Method *method)
 {
     diag("Method", method->Signature()->Name());
-    if (structures_.size())
+    if (pass_ == 2 && structures_.size())
     {
         bool ctor = false;
         int count = method->Signature()->ParamCount();
@@ -467,22 +503,31 @@ bool Importer::EnterMethod(const Method *method)
 bool Importer::EnterField(const Field *field)
 {
     diag("Field", field->Name());
-    if (structures_.size())
+    if (pass_ == 2 && structures_.size())
     {
         TYPE *tp = TranslateType(field->FieldType());
         if (tp)
         {
             SYMBOL *sp = (SYMBOL *)Alloc(sizeof(SYMBOL));
             sp->name = litlate((char *)field->Name().c_str());
-            if (field->Flags().Flags() & Qualifiers::Static)
-                sp->storage_class = sc_static;
+            if (structures_.back()->tp->type == bt_enum)
+            {
+                sp->storage_class = sc_enumconstant;
+                tp->scoped = tp->enumConst = TRUE;
+                sp->value.i = field->EnumValue();
+            }
             else
-                sp->storage_class = sc_member;
+            {
+                if (field->Flags().Flags() & Qualifiers::Static)
+                    sp->storage_class = sc_static;
+                else
+                    sp->storage_class = sc_member;
+                sp->msil = (void *)field;
+            }
             sp->tp = tp;
             sp->parentClass = structures_.back();
             sp->declfile = sp->origdeclfile = "[import]";
             sp->access = ac_public;
-            sp->msil = (void *)field;
             SetLinkerNames(sp, lk_cdecl);
             if (useGlobal())
                 insert(sp, globalNameSpace->syms);
@@ -495,7 +540,7 @@ bool Importer::EnterField(const Field *field)
 bool Importer::EnterProperty(const Property *property)
 {
     diag("Property", property->Name());
-    if (structures_.size())
+    if (pass_ == 2 && structures_.size())
     {
         TYPE *tp = TranslateType(property->GetType());
         if (tp)

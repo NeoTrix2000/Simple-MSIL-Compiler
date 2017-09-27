@@ -36,7 +36,7 @@ For example:
 * '__entrypoint' classifies a function as an entrypoint.   If you add this to a function the normal C startup will be ignored and the function will be called as the main function.
 *  `native int` is a new type to support the 'native' int size of MSIL.
 *  C++ `&` operator: When used on a function parameter, makes the parameter a `ref` parameter.  No other current use is possible.   For example: `int myfunc(int &a);`
-*  C++ namespace qualifiers may be used to reference a function in a loaded assembly.  Since `mscorlib` is always preloaded, the following is always possible:   `System::Console::WriteLine("hello, world!");`.   It is also possible to use the using directive:  `using namespace System;`.
+*  C++ namespace qualifiers may be used to reference a function in a loaded assembly.  Since `mscorlib` is always preloaded, the following is always possible:   `System::Console::WriteLine("hello, world!");`.   It is also possible to use the using directive:  `using namespace System;` and then write"  `Console::WriteLine("Hello, world!");`
 *  Basic types will automatically be converted to their 'boxed' type for various purposes.   For example:
 	`using namespace System;
 	int aa = 5;
@@ -44,9 +44,12 @@ For example:
 * Instance members may also be called: `aa.ToString();`.
 * Managed arrays: when the array indexes appear before the variable name, the array is allocated as either an MSIL array or a multidimensional array of objects.   Such arrays can only be used or passed to functions; you cannot do anything that would be equivalent to taking the address of the related managed objects. For example: `int [5]aa;`.
 * C++ constructors: Will use `newobj` to call a managed version of the constructor and create an object
-* #pragma netlib allows loading a .net assembly programmattically.   For example to get access to MessageBox do the following:
-	#pragma netlib System.Windows.Forms
-	using namespace System::Windows::Forms
+* MSIL Strings: `@"<string>"` makes an msil string.   As in C#, it is taken literally.  If you need to use escape sequences but still want an MSIL string (because in some contexts the c-style string won't be auto-converted) use string concatenation: `@"""<C-style escaped string>"`
+* `#pragma netlib <library>` allows loading a .net assembly programmattically.   For example to get access to MessageBox do the following:
+	`#pragma netlib System.Windows.Forms`
+	`using namespace System::Windows::Forms`
+	...
+	MessageBox.Show("hello","message box");
 
 ## Runtime Environment
 Set the environment variable `OCCIL_ROOT` to the Orange C path for it to find include files and add the OCCIL executables to the path:

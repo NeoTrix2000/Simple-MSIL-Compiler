@@ -409,7 +409,7 @@ static BOOLEAN kwmatches(KEYWORD *kw)
     else if (!kw->matchFlags || kw->matchFlags == KW_ASSEMBLER)
         return TRUE;
     else if (((kw->matchFlags & KW_CPLUSPLUS) && cparams.prm_cplusplus) ||
-        (kw->matchFlags & (KW_C99 | KW_C1X)) || ((kw->matchFlags & KW_MSIL) && chosenAssembler->msil) ||
+        (kw->matchFlags & (KW_C99 | KW_C1X)) || ((kw->matchFlags & KW_MSIL) && chosenAssembler->msil && chosenAssembler->msil->allowExtensions) ||
         ((kw->matchFlags & (KW_NONANSI | KW_INLINEASM)) && !cparams.prm_ansi))
     {
             if (kw->matchFlags & KW_NONANSI)
@@ -579,6 +579,7 @@ SLCHAR *getString(unsigned char **source, enum e_lexType *tp)
     LCHAR *dest = data;
     BOOLEAN raw = FALSE;
     BOOLEAN found = FALSE;
+    BOOLEAN msil = FALSE;
     unsigned char *p = (unsigned char *)*source;
     int len = sizeof(data)/sizeof(data[0]);
     int count = 0;
@@ -587,6 +588,11 @@ SLCHAR *getString(unsigned char **source, enum e_lexType *tp)
     if (*p == 'L')
     {
         v = l_wstr;
+        do p++; while (*p == MACRO_PLACEHOLDER);
+    }
+    else if (*p == '@' && chosenAssembler->msil && chosenAssembler->msil->allowExtensions)
+    {
+        v = l_msilstr;
         do p++; while (*p == MACRO_PLACEHOLDER);
     }
     else if (cparams.prm_cplusplus || cparams.prm_c1x)
@@ -732,7 +738,10 @@ SLCHAR *getString(unsigned char **source, enum e_lexType *tp)
             while (*p && *p != '"')
             {
                 int i ;
-                i = getsch(v == l_Ustr || v == l_u8str ? 8 : v == l_wstr || v == l_ustr ? 4 : 2, &p);
+                if (v == l_msilstr)
+                    i = *p++;
+                else
+                    i = getsch(v == l_Ustr || v == l_u8str ? 8 : v == l_wstr || v == l_ustr ? 4 : 2, &p);
                 if (i == INT_MIN)
                 {
                     if (!errored)
@@ -777,7 +786,7 @@ SLCHAR *getString(unsigned char **source, enum e_lexType *tp)
                     }
                     else
                     {
-                        if (v == l_ustr && (i & 0xffff0000))
+                        if (v == l_ustr  && (i & 0xffff0000))
                             error(ERR_INVALID_CHAR_CONSTANT);
                         if (v == l_Ustr && i > 0x10ffff)
                             error(ERR_INVALID_CHAR_CONSTANT);

@@ -2080,7 +2080,8 @@ static LEXEME *statement_return(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent)
         {
             if (!isstructured(basetype(funcsp->tp)->btp) && 
                 basetype(basetype(funcsp->tp)->btp)->type != bt_memberptr)
-                error(ERR_FUNCTION_RETURNING_ADDRESS_STACK_VARIABLE);
+                if (!isarray(basetype(funcsp->tp)->btp) || !basetype(funcsp->tp)->btp->msil)
+                    error(ERR_FUNCTION_RETURNING_ADDRESS_STACK_VARIABLE);
         }
         if (!returnexp)
             returnexp = intNode(en_c_i, 0); // errors
@@ -2890,7 +2891,7 @@ static LEXEME *statement(LEXEME *lex, SYMBOL *funcsp, BLOCKDATA *parent,
             lex = statement_asm(lex, funcsp, parent);
             return lex;
         default:
-            if ((startOfType(lex, FALSE) && (!cparams.prm_cplusplus && !chosenAssembler->msil || resolveToDeclaration(lex)))
+            if ((startOfType(lex, FALSE) && (!cparams.prm_cplusplus && (!chosenAssembler->msil || !chosenAssembler->msil->allowExtensions) || resolveToDeclaration(lex)))
                  || MATCHKW(lex, kw_namespace) || MATCHKW(lex, kw_using) || MATCHKW(lex, kw_decltype) || MATCHKW(lex, kw_static_assert) )
             {
                 if (!cparams.prm_c99 && !cparams.prm_cplusplus)

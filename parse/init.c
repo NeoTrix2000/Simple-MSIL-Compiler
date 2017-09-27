@@ -1343,6 +1343,8 @@ static LEXEME *initialize_string(LEXEME *lex, SYMBOL *funcsp, TYPE **rtype, EXPR
         case l_wstr:
             *rtype = &stdwcharptr;
             break;
+        case l_msilstr:
+            *rtype = &std__string;
         case l_ustr:        
             *rtype = &stdchar16tptr;
             break;
@@ -1395,7 +1397,7 @@ static LEXEME *initialize_pointer_type(LEXEME *lex, SYMBOL *funcsp, int offset, 
     }
     else
     {
-        if (!lex || (lex->type != l_astr && lex->type != l_wstr && lex->type != l_ustr && lex->type != l_Ustr))
+        if (!lex || (lex->type != l_astr && lex->type != l_wstr && lex->type != l_ustr && lex->type != l_Ustr && lex->type != l_msilstr))
         {
             lex = init_expression(lex, funcsp, itype, &tp, &exp, FALSE);
             if (!tp)
@@ -2026,6 +2028,8 @@ static enum e_bt str_candidate(LEXEME *lex, TYPE *tp)
 {
     TYPE *bt;
     bt = basetype(tp);
+    if (bt->type == bt___string)
+        return bt->type;
     if (bt->type == bt_pointer)
         if (lex->type == l_astr || lex->type == l_wstr || lex->type == l_ustr || lex->type == l_Ustr)
         {
@@ -2380,6 +2384,10 @@ static LEXEME *read_strings(LEXEME *lex, INITIALIZER **next,
             if (btp->type != bt_wchar_t && btp->type != bt_short && btp->type != bt_unsigned_short)
                 error(ERR_STRING_TYPE_MISMATCH_IN_INITIALIZATION);
             break;
+        case l_msilstr:
+            if (tp->type != bt_string && btp->type != bt_wchar_t && btp->type != bt_short && btp->type != bt_unsigned_short)
+                error(ERR_STRING_TYPE_MISMATCH_IN_INITIALIZATION);
+            break;
         case l_ustr:
             if (btp->type != bt_char16_t)
                 error(ERR_STRING_TYPE_MISMATCH_IN_INITIALIZATION);
@@ -2698,8 +2706,39 @@ static LEXEME *initialize_aggregate_type(LEXEME *lex, SYMBOL *funcsp, SYMBOL *ba
         }
         return lex;
     }
+    if (isarray(itype) && itype->msil && lex && !MATCHKW(lex, begin))
+    {
+        EXPRESSION *exp =NULL;
+        TYPE *tp = NULL;
+        lex = expression(lex, funcsp, NULL, &tp, &exp, 0);
+        if (!tp)
+        {
+            error(ERR_EXPRESSION_SYNTAX);
+        }
+        else
+        {
+            INITIALIZER *it = NULL;
+            if (!comparetypes(itype, tp, TRUE))
+            {
+                error(ERR_INCOMPATIBLE_TYPE_CONVERSION);
+            }
+            exp = exprNode(en_assign, exprNode(en_l_object, getThisNode(base), NULL), exp);
+            exp->left->v.tp = itype;
+            initInsert(&it, itype, exp, offset, TRUE);
+            if (sc != sc_auto && sc != sc_localstatic && sc != sc_parameter && sc != sc_member && sc != sc_mutable && !arrayMember)
+            {
+                insertDynamicInitializer(base, it);
+            }
+            else
+            {
+                *init = it;
+            }
+
+        }
+        return lex;
+    }
     // if we get here it is an array or a trivial structure
-    if (!lex || MATCHKW(lex, begin) || !str_candidate(lex, itype))
+    else if (!lex || MATCHKW(lex, begin) || !str_candidate(lex, itype))
     {
         if (cparams.prm_cplusplus && !MATCHKW(lex, begin))
         {
@@ -3688,7 +3727,7 @@ LEXEME *initialize(LEXEME *lex, SYMBOL *funcsp, SYMBOL *sp, enum e_sc storage_cl
             errorsym(ERR_STRUCT_NOT_DEFINED, tp->sp);
     }
     // if not in a constructor, any openpa() will be eaten by an expression parser
-    else if (MATCHKW(lex, assign) || (cparams.prm_cplusplus && (MATCHKW(lex, openpa) || MATCHKW(lex, begin))) || (chosenAssembler->msil && MATCHKW(lex,openpa)))
+    else if (MATCHKW(lex, assign) || (cparams.prm_cplusplus && (MATCHKW(lex, openpa) || MATCHKW(lex, begin))) || (chosenAssembler->msil && chosenAssembler->msil->allowExtensions && MATCHKW(lex,openpa)))
     {
         INITIALIZER **init;
         BOOLEAN isassign = MATCHKW(lex, assign);
@@ -3782,7 +3821,7 @@ LEXEME *initialize(LEXEME *lex, SYMBOL *funcsp, SYMBOL *sp, enum e_sc storage_cl
     else if ((cparams.prm_cplusplus || chosenAssembler->msil && isstructured(sp->tp) && !basetype(sp->tp)->sp->trivialCons)
         && sp->storage_class != sc_typedef && sp->storage_class != sc_external && !asExpression)
     {
-        TYPE *t = chosenAssembler->msil ? chosenAssembler->msil->find_boxed_type(sp->tp) : 0;
+        TYPE *t = (chosenAssembler->msil && chosenAssembler->msil->allowExtensions) ? chosenAssembler->msil->find_boxed_type(sp->tp) : 0;
         if (!t || !search(overloadNameTab[CI_CONSTRUCTOR], basetype(t)->syms))
             t = sp->tp;
         if (isstructured(t))
