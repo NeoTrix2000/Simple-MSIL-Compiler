@@ -50,7 +50,16 @@ For example:
 	`using namespace System::Windows::Forms`
 	...
 	MessageBox.Show("hello","message box");
-
+* occil handles most SEH constructs now.   For example:
+	__try {
+		File.Open("some file that doesn't exist", FileMode::Open);
+	}
+	__catch (Exception e) {
+		Console::WriteLine(e.Message);
+	}
+	__finally {
+		printf("Finally!");
+	}
 ## Runtime Environment
 Set the environment variable `OCCIL_ROOT` to the Orange C path for it to find include files and add the OCCIL executables to the path:
 
@@ -87,6 +96,8 @@ The compiler will create structures and enumerations for things found in the C c
 This compiler will also enable C# to call managed functions with variable length argument lists.  
 
 The `/L` switch may now also be used to specify .NET assemblies to load.  `mscorlib.dll` is automatically loaded by the compiler.
+
+The switch '-d' can be used to tell the compiler to stick to plain C and not accept C#-like extensions.
 
 Beyond that this is a C11 compiler, but some things currently aren't implemented or are implemented in a limited fashion:
 
