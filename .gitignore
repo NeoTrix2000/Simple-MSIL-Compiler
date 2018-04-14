@@ -6,7 +6,6 @@
 *.tr2
 *.td2
 *.tmp
-*.dll
 *.asm
 *.exe
 *.map
