@@ -4,11 +4,11 @@ build_script:
         - ps: "cd ..\\..; move projects\\simple-msil-compiler .\\msil; cd msil\\occil; .\\ms; cd ..\\..; move msil projects\\simple-msil-compiler"
 
 artifacts:
-  - path: "Release\\DotNetPELib.lib"
+  - path: "occil\\Release\\DotNetPELib.lib"
     name: DotNetPELib
-  - path: "Release\\occmsil.lib"
+  - path: "occil\\Release\\occmsil.lib"
     name: occmsil
-  - path: "Release\\NetLink.exe"
+  - path: "occil\\Release\\NetLink.exe"
     name: NetLink
-  - path: "Release\\occil.exe"
+  - path: "occil\\Release\\occil.exe"
     name: occil
