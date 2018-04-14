@@ -184,8 +184,8 @@ begin
   if IsComponentSelected('main\desktop') Then
     Begin
       retval := retval + NewLine + NewLine + MemoTasksInfo + NewLine + NewLine + MemoGroupInfo;
-    End
-    result := retval;
+    End;
+  result := retval;
 end;
 
 
