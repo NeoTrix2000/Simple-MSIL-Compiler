@@ -2,6 +2,10 @@
 
 This is a version of the Orange C compiler that does MSIL code generation for the .NET Framework.
 
+Build Status: 
+[![Build status](https://ci.appveyor.com/api/projects/status/omahydb3qgu5f6dx?svg=true)](https://ci.appveyor.com/project/LADSoft/simple-msil-compiler)
+
+
 This is a WIP.  At present it mostly supports the C language.  
 
 This version supports common RTL variables such as `stdin`, `stdout`, `stderr`, `errno`, and the variables used for the macros in `ctype.h`.   It also supports command line arguments.
