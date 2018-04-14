@@ -18,7 +18,7 @@ The results are undefined if you try to use some extension such as `alloca`.
 
 There may be a variety of bugs.
 
-The sources for this version build independently from the main Orange C branch, except that you may want to use the Orange C includes directory when compiling files with a compiler you build.   All sources in this package have a VS2017 community edition solution.
+The sources for this version build independently from the main Orange C branch.   The include files from the ORANGEC compiler exist in this repository as well, an [Appveyor CI](https://ci.appveyor.com/project/LADSoft/simple-msil-compiler) project uses them and some other static data to build an installation setup file after each checkin.  All sources in this package have a VS2017 community edition solution.
 
 Run the compiler `occil` on a simple C program (`test.c` is included as an example).
 
