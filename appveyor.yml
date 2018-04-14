@@ -1,0 +1,14 @@
+image: Visual Studio 2017
+
+build_script:
+        - ps: "cd ..\\..; move projects\\msil .; cd msil\\occil; .\\ms; cd ..\\..; move msil projects"
+
+artifacts:
+  - path: "Release\\DotNetPELib.lib"
+    name: DotNetPELib
+  - path: "Release\\occmsil.lib"
+    name: occmsil
+  - path: "Release\\NetLink.exe"
+    name: NetLink
+  - path: "Release\\occil.exe"
+    name: occil
