@@ -1,5 +1,7 @@
 image: Visual Studio 2017
 
+install: git submodule update --init --recursive
+
 build_script:
         - ps: "cd ..\\..; move projects\\simple-msil-compiler .\\msil; cd msil\\occil; .\\ms; cd ..\\..; move msil projects\\simple-msil-compiler"
 
