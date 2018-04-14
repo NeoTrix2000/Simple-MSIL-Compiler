@@ -1,15 +1,20 @@
 image: Visual Studio 2017
 
-install: git submodule update --init --recursive
+install: 
+    - git submodule update --init --recursive
+    - choco install InnoSetup
+    - set PATH=%PATH%;"C:\Program Files (x86)\Inno Setup 5"
 
 build_script:
-        - ps: "cd ..\\..; move projects\\simple-msil-compiler .\\msil; cd msil\\occil; .\\ms; cd ..\\..; move msil projects\\simple-msil-compiler"
+    - ps: "cd ..\\..; move projects\\simple-msil-compiler .\\msil; cd msil\\occil; .\\ms; cd ..\\..; move msil projects\\simple-msil-compiler"
 
 artifacts:
-  - path: "occil\\Release\\DotNetPELib.lib"
-    name: DotNetPELib
-  - path: "occil\\Release\\occmsil.lib"
-    name: occmsil
+  - path: "output\\setup.exe"
+    name: installer
+  - path: "occil\\Release\\occmsil.dll"
+    name: occmsil.dll
+  - path: "occil\\Release\\lsmsilcrtl.dll"
+    name: lsmsilcrtl
   - path: "occil\\Release\\NetLink.exe"
     name: NetLink
   - path: "occil\\Release\\occil.exe"
